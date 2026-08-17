@@ -266,14 +266,14 @@ function Stars({ n, max = 5 }: { n: number; max?: number }) {
   );
 }
 
-export default function GameCanvas() {
+export default function GameCanvas({ admin = false }: { admin?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<SaberGame | null>(null);
   const crosshairRef = useRef<HTMLDivElement>(null);
   const trailRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<HudState>(INITIAL);
   const [error, setError] = useState<string | null>(null);
-  const [screen, setScreen] = useState<Screen>("menu");
+  const [screen, setScreen] = useState<Screen>(admin ? "select" : "menu");
   const [roster, setRoster] = useState<RosterHero[] | null>(null);
   const [rosterError, setRosterError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -381,13 +381,34 @@ export default function GameCanvas() {
       ctx.arc(cx, cy, 4, 0, Math.PI * 2);
       ctx.fill();
     };
+    if (admin) {
+      const player = TOON_HEROES[0];
+      const pool = TOON_HEROES.slice(1, 8);
+      const toInfo = (h: RosterHero): HeroInfo => ({
+        id: h.id,
+        name: h.name,
+        title: h.title,
+        faction: h.faction,
+        factionColor: h.factionColor,
+        modelUrl: h.modelUrl,
+        weapon: h.weapon,
+        raceId: h.raceId,
+        classId: h.classId,
+        rig: h.rig,
+      });
+      setRoster([...TOON_HEROES, LUCY_HERO]);
+      setSelectedId(player.id);
+      setMode("animtest");
+      setScreen("select");
+      void game.start(toInfo(player), pool.map(toInfo), "animtest");
+    }
     return () => {
       off();
       game.onAim = null;
       game.dispose();
       gameRef.current = null;
     };
-  }, []);
+  }, [admin]);
 
   async function openSelect(m: GameMode) {
     setMode(m);
@@ -648,7 +669,11 @@ export default function GameCanvas() {
           )}
 
           {gameRef.current && (
-            <WeaponSkillStudioPanel game={gameRef.current} onUiMouse={uiMouse} />
+            <WeaponSkillStudioPanel
+              game={gameRef.current}
+              onUiMouse={uiMouse}
+              layout={admin ? "admin" : "dock"}
+            />
           )}
 
           <canvas ref={trailRef} className="draw-trail" />
@@ -665,7 +690,14 @@ export default function GameCanvas() {
         </div>
       )}
 
-      {hud.phase === "menu" && screen === "menu" && (
+      {admin && (
+        <div className="admin-bar">
+          <a href="/">Arena arena</a>
+          <span>Admin / Yuka / linear / effects</span>
+        </div>
+      )}
+
+      {hud.phase === "menu" && screen === "menu" && !admin && (
         <Overlay>
           <img
             className="brand-logo"
@@ -701,6 +733,9 @@ export default function GameCanvas() {
             >
               Weapon Skill Studio
             </button>
+            <a className="play-btn ghost" href="/admin">
+              /admin Editor
+            </a>
           </div>
           <p className="tip mode-tip">
             Survival: five escalating waves. Faction War: six race squads clash

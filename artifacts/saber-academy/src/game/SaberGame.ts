@@ -59,6 +59,12 @@ import { saveCatalog } from "./studio";
 import { mmForWeapon, enemyStandoff } from "./mm";
 import { initRapier, PhysicsWorld, type CharacterBody } from "./physics";
 import { StaticWorldBVH, makeBodyHitter, type BodyHitter } from "./worldbvh";
+import {
+  CombatSteering,
+  ThreatTable,
+  aggroState,
+  type SteerMode,
+} from "./brains";
 
 export type GamePhase = "menu" | "loading" | "playing" | "gameover" | "victory";
 
@@ -399,6 +405,13 @@ interface Enemy {
   passive?: boolean;
   /** Active status effects applied by weapon-skill buffs/debuffs. */
   statusEffects: StatusEffect[];
+  /** Yuka root steering (never writes bones / mixer). */
+  steer: CombatSteering;
+  /** uMMORPG threat table — not nearest-only. */
+  threat: ThreatTable;
+  spawnX: number;
+  spawnZ: number;
+  brainId: string;
 }
 
 /**
@@ -3289,6 +3302,11 @@ export class SaberGame {
       castDef,
       passive: this.spawnAsPassive,
       statusEffects: [],
+      steer: new CombatSteering(),
+      threat: new ThreatTable(),
+      spawnX: pos.x,
+      spawnZ: pos.z,
+      brainId: `e-${this.enemies.length}-${Math.random().toString(36).slice(2, 8)}`,
     };
     this.drawHealthBar(enemy);
     this.enemies.push(enemy);
@@ -3329,9 +3347,30 @@ export class SaberGame {
    */
   private nearestTargetFor(e: Enemy): Enemy | "player" | null {
     const pos = e.inst.group.position;
+    const ai = catalog.ai;
+    const aggro = ai?.aggro;
+    const now = performance.now() / 1000;
+    e.threat.tick(
+      0.016,
+      ai?.threat.decayPerSec ?? 4,
+      now,
+    );
+    const resolveId = (id: string | null): Enemy | "player" | null => {
+      if (!id) return null;
+      if (id === "player" && e.team !== this.playerTeam) return "player";
+      return this.enemies.find((o) => o.alive && o.brainId === id) ?? null;
+    };
+    const top = resolveId(e.threat.top());
+    if (top) {
+      const tp = top === "player" ? this.player.position : top.inst.group.position;
+      const fromSpawn = Math.hypot(pos.x - e.spawnX, pos.z - e.spawnZ);
+      if (!aggro || fromSpawn <= aggro.leashRadius) {
+        const d = Math.hypot(tp.x - pos.x, tp.z - pos.z);
+        if (!aggro || d <= aggro.leashRadius) return top;
+      }
+    }
     let best: Enemy | "player" | null = null;
     let bestD = Infinity;
-    // The player is a valid target only for non-team-0 units.
     if (e.team !== this.playerTeam && this.phase === "playing") {
       const d = pos.distanceToSquared(this.player.position);
       best = "player";
@@ -3345,6 +3384,15 @@ export class SaberGame {
         best = o;
       }
     }
+    if (!best || !aggro) return best;
+    const dist = Math.sqrt(bestD);
+    const ring = aggroState(
+      dist,
+      Math.hypot(pos.x - e.spawnX, pos.z - e.spawnZ),
+      aggro,
+    );
+    if (ring === "leash") return null;
+    if (ring === "idle") return e.threat.top() ? best : null;
     return best;
   }
 
@@ -4061,6 +4109,15 @@ export class SaberGame {
       sparkColor,
     );
     if (buffs) this.applyBuffsToEnemy(e, buffs);
+    const mul = catalog.ai?.threat.damageMul ?? 1;
+    e.threat.add("player", dmg * mul);
+    const assist = catalog.ai?.aggro.assistRadius ?? 30;
+    for (const o of this.enemies) {
+      if (o === e || !o.alive || o.team !== e.team) continue;
+      if (o.inst.group.position.distanceTo(e.inst.group.position) <= assist) {
+        o.threat.add("player", dmg * mul * 0.35);
+      }
+    }
     if (e.health <= 0) this.killEnemy(e);
   }
 
@@ -6159,44 +6216,53 @@ export class SaberGame {
         ? this.tmpV2.copy(targetPos).sub(pos).setY(0).length()
         : Infinity;
 
-      // Desired velocity from Movement Motivation: every enemy tries to hold its
-      // MM-derived `desiredRange`. Close the gap when farther than that; only
-      // enemies with a ranged attack (`ranged`) back off / strafe when inside it
-      // -- melee-only enemies never retreat, they just commit to attack range.
       e.moving = false;
       let vx = e.knockback.x;
       let vz = e.knockback.z;
-      // Slow debuffs scale the enemy's effective movement speed.
       const spd = e.speed * this.enemySpeedMult(e);
+      const fromSpawn = Math.hypot(pos.x - e.spawnX, pos.z - e.spawnZ);
+      const ring = catalog.ai
+        ? aggroState(dist, fromSpawn, catalog.ai.aggro)
+        : "aggro";
       if (!frozen && e.pendingCast) {
-        // Casters plant while winding up a line cast (interrupt clears it).
+        e.steer.setMode("idle");
       } else if (!frozen) {
-        if (e.archetype === "flanker" && dist <= FLANKER_ORBIT_BAND && dist > e.desiredRange) {
-          // Flanker: spiral in — blend the approach with a strong tangential
-          // orbit so it comes at the player from the side, not head-on.
+        let mode: SteerMode = "idle";
+        let tx = aimPos.x;
+        let tz = aimPos.z;
+        if (ring === "leash") {
+          mode = "seek";
+          tx = e.spawnX;
+          tz = e.spawnZ;
+        } else if (followPos && dist > 6) {
+          mode = "arrive";
+        } else if (e.archetype === "flanker" && dist <= FLANKER_ORBIT_BAND && dist > e.desiredRange) {
           const sx = -toPlayer.z * e.strafeDir;
           const sz = toPlayer.x * e.strafeDir;
-          vx += (toPlayer.x * 0.55 + sx * 0.85) * spd;
-          vz += (toPlayer.z * 0.55 + sz * 0.85) * spd;
-          e.moving = true;
+          tx = pos.x + toPlayer.x * 0.55 + sx * 0.85;
+          tz = pos.z + toPlayer.z * 0.55 + sz * 0.85;
+          mode = "seek";
         } else if (dist > e.desiredRange) {
-          // Close the gap.
-          vx += toPlayer.x * spd;
-          vz += toPlayer.z * spd;
-          e.moving = true;
+          mode = "seek";
         } else if (e.ranged && dist < e.desiredRange - KITE_BAND) {
-          // Too close for a ranged attacker: back off to keep distance.
-          vx -= toPlayer.x * spd;
-          vz -= toPlayer.z * spd;
-          e.moving = true;
+          mode = "flee";
         } else if (e.ranged) {
-          // Ranged attacker in its band: hold range and strafe to stay evasive.
           const sx = -toPlayer.z * e.strafeDir;
           const sz = toPlayer.x * e.strafeDir;
-          vx += sx * spd * 0.6;
-          vz += sz * spd * 0.6;
-          e.moving = true;
+          tx = pos.x + sx;
+          tz = pos.z + sz;
+          mode = "seek";
+        } else if (ring === "alert" && catalog.ai?.defaultBehavior === "wander") {
+          mode = "wander";
+        } else if (ring === "idle" && catalog.ai?.defaultBehavior === "wander") {
+          mode = "wander";
         }
+        e.steer.syncFrom(pos.x, pos.z, spd);
+        e.steer.setMode(mode, tx, tz);
+        const yv = e.steer.step(dt);
+        vx += yv.vx;
+        vz += yv.vz;
+        e.moving = mode !== "idle" && (yv.vx * yv.vx + yv.vz * yv.vz) > 0.04;
       }
       const m = this.moveBody(
         e.body,

@@ -9,6 +9,15 @@ import {
   CLIP_NAMES,
   keyLabel,
 } from "@/game/skillcatalog";
+import {
+  EFFECT_ATTACH,
+  EFFECT_KINDS,
+  EFFECT_MESH_IDS,
+  defaultPrimitive,
+  type EffectKind,
+  type EffectPrimitive,
+} from "@/game/effectPrefab";
+import { defaultAiCatalog, type BrainBehavior } from "@/game/brains";
 import { studioSaveAvailable } from "@/game/studio";
 import {
   BUFF_TYPES,
@@ -29,7 +38,7 @@ import {
  * to the game files via the dev-only endpoint.
  */
 
-type Tab = "skill" | "cast" | "ranged";
+type Tab = "skill" | "cast" | "ranged" | "linear" | "effects" | "brains";
 
 // ---- Buff/Debuff sub-editor ------------------------------------------------
 
@@ -156,9 +165,11 @@ function fromHex(s: string): number {
 export function WeaponSkillStudioPanel({
   game,
   onUiMouse,
+  layout = "dock",
 }: {
   game: SaberGame;
   onUiMouse: (on: boolean) => void;
+  layout?: "dock" | "admin";
 }) {
   const [cat, setCat] = useState<WeaponSkillCatalog>(() =>
     game.studioGetCatalog(),
@@ -167,6 +178,7 @@ export function WeaponSkillStudioPanel({
   const [classId] = useState<string>(() => game.studioPlayerClass());
   const [skillIdx, setSkillIdx] = useState(0);
   const [castIdx, setCastIdx] = useState(0);
+  const [effectIdx, setEffectIdx] = useState(0);
   const [rebinding, setRebinding] = useState<null | { kind: "skill" | "cast"; i: number }>(
     null,
   );
@@ -254,6 +266,32 @@ export function WeaponSkillStudioPanel({
       return next;
     });
   }
+  function editLinearGlobal(patch: Record<string, number>) {
+    setCat((c) => {
+      const next = structuredClone(c);
+      next.linear = next.linear ?? { global: {} as never };
+      next.linear.global = { ...next.linear.global, ...patch };
+      return next;
+    });
+  }
+  function editAi(path: "aggro" | "threat" | "root", patch: Record<string, number | string>) {
+    setCat((c) => {
+      const next = structuredClone(c);
+      next.ai = next.ai ?? defaultAiCatalog();
+      if (path === "root") Object.assign(next.ai, patch);
+      else Object.assign(next.ai[path], patch);
+      return next;
+    });
+  }
+  function editEffect(i: number, patch: Partial<EffectPrimitive>) {
+    setCat((c) => {
+      const next = structuredClone(c);
+      const list = next.effects ?? [];
+      list[i] = { ...list[i], ...patch };
+      next.effects = list;
+      return next;
+    });
+  }
 
   async function onSave() {
     setSaving(true);
@@ -295,12 +333,14 @@ export function WeaponSkillStudioPanel({
 
   return (
     <div
-      className="wss-panel"
+      className={`wss-panel${layout === "admin" ? " admin" : ""}`}
       onMouseEnter={() => onUiMouse(true)}
       onMouseLeave={() => onUiMouse(false)}
     >
       <div className="wss-head">
-        <span className="wss-title">Weapon Skill Studio</span>
+        <span className="wss-title">
+          {layout === "admin" ? "Combat Admin" : "Weapon Skill Studio"}
+        </span>
         <span className="wss-class">class: {classId}</span>
       </div>
 
@@ -318,6 +358,15 @@ export function WeaponSkillStudioPanel({
         </button>
         <button className={tab === "ranged" ? "on" : ""} onClick={() => setTab("ranged")}>
           Ranged LMB
+        </button>
+        <button className={tab === "linear" ? "on" : ""} onClick={() => setTab("linear")}>
+          Linear
+        </button>
+        <button className={tab === "effects" ? "on" : ""} onClick={() => setTab("effects")}>
+          Effects
+        </button>
+        <button className={tab === "brains" ? "on" : ""} onClick={() => setTab("brains")}>
+          AI / Yuka
         </button>
       </div>
 
@@ -544,6 +593,159 @@ export function WeaponSkillStudioPanel({
               onChange={(e) => editRanged("orb", { color: fromHex(e.target.value) })}
             />
           </label>
+        </div>
+      )}
+
+      {tab === "linear" && cat.linear && (
+        <div className="wss-body">
+          <div className="wss-subhead">Linear skillshot globals</div>
+          <p className="wss-clips">
+            Casting + LinearAbility: travel → impact → fade. Multipliers sample
+            live on the next cast (range / speed / damage / AOE / wind-up).
+          </p>
+          {num("Time scale", cat.linear.global.timeScale, (v) => editLinearGlobal({ timeScale: v }), 0.05)}
+          {num("Speed ×", cat.linear.global.speed, (v) => editLinearGlobal({ speed: v }), 0.05)}
+          {num("Range ×", cat.linear.global.range, (v) => editLinearGlobal({ range: v }), 0.05)}
+          {num("Damage ×", cat.linear.global.damage, (v) => editLinearGlobal({ damage: v }), 0.05)}
+          {num("AOE ×", cat.linear.global.aoe, (v) => editLinearGlobal({ aoe: v }), 0.05)}
+          {num("Wind-up ×", cat.linear.global.windup, (v) => editLinearGlobal({ windup: v }), 0.05)}
+          {num("Glow ×", cat.linear.global.glow, (v) => editLinearGlobal({ glow: v }), 0.05)}
+          {num("Intensity ×", cat.linear.global.intensity, (v) => editLinearGlobal({ intensity: v }), 0.05)}
+          {num("Shake ×", cat.linear.global.cameraShake, (v) => editLinearGlobal({ cameraShake: v }), 0.05)}
+          <div className="wss-subhead">Per-element (same as Elemental tab)</div>
+          <p className="wss-clips">
+            fire→meteor · ice→ice · thunder→bolt · nova→beam · snare→zone ·
+            volley→glacier. Edit the Elemental tab for metres / hold / shape.
+          </p>
+        </div>
+      )}
+
+      {tab === "effects" && (
+        <div className="wss-body">
+          <div className="wss-subhead">Casting primitives</div>
+          <div className="wss-row">
+            {(cat.effects ?? []).map((p, i) => (
+              <button
+                key={`${p.kind}-${i}`}
+                className={i === effectIdx ? "on" : ""}
+                onClick={() => setEffectIdx(i)}
+              >
+                {p.kind}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                setCat((c) => {
+                  const next = structuredClone(c);
+                  next.effects = [...(next.effects ?? []), defaultPrimitive("travel")];
+                  return next;
+                });
+                setEffectIdx((cat.effects ?? []).length);
+              }}
+            >
+              +
+            </button>
+          </div>
+          {cat.effects?.[effectIdx] && (
+            <>
+              <label className="wss-field">
+                <span>Kind</span>
+                <select
+                  value={cat.effects[effectIdx].kind}
+                  onChange={(e) =>
+                    editEffect(effectIdx, { kind: e.target.value as EffectKind })
+                  }
+                >
+                  {EFFECT_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="wss-field">
+                <span>Mesh</span>
+                <select
+                  value={cat.effects[effectIdx].meshId ?? "none"}
+                  onChange={(e) => editEffect(effectIdx, { meshId: e.target.value })}
+                >
+                  {EFFECT_MESH_IDS.map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="wss-field">
+                <span>Attach</span>
+                <select
+                  value={cat.effects[effectIdx].attach ?? "root"}
+                  onChange={(e) =>
+                    editEffect(effectIdx, {
+                      attach: e.target.value as EffectPrimitive["attach"],
+                    })
+                  }
+                >
+                  {EFFECT_ATTACH.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="wss-field">
+                <span>Color</span>
+                <input
+                  type="color"
+                  value={cat.effects[effectIdx].color}
+                  onChange={(e) => editEffect(effectIdx, { color: e.target.value })}
+                />
+              </label>
+              {num("Intensity", cat.effects[effectIdx].intensity, (v) => editEffect(effectIdx, { intensity: v }), 0.05)}
+              {num("AOE (m)", cat.effects[effectIdx].aoe, (v) => editEffect(effectIdx, { aoe: v }), 0.1)}
+              {num("Speed (m/s)", cat.effects[effectIdx].speed, (v) => editEffect(effectIdx, { speed: v }), 0.5)}
+              {num("Size", cat.effects[effectIdx].size, (v) => editEffect(effectIdx, { size: v }), 0.05)}
+              {num("Duration (s)", cat.effects[effectIdx].duration ?? 0.6, (v) => editEffect(effectIdx, { duration: v }), 0.05)}
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === "brains" && cat.ai && (
+        <div className="wss-body">
+          <div className="wss-subhead">Aggro rings (metres)</div>
+          {num("Detection", cat.ai.aggro.detectionRadius, (v) => editAi("aggro", { detectionRadius: v }))}
+          {num("Aggro", cat.ai.aggro.aggroRadius, (v) => editAi("aggro", { aggroRadius: v }))}
+          {num("Assist", cat.ai.aggro.assistRadius, (v) => editAi("aggro", { assistRadius: v }))}
+          {num("Leash", cat.ai.aggro.leashRadius, (v) => editAi("aggro", { leashRadius: v }))}
+          {num("LOS timeout (s)", cat.ai.aggro.losTimeoutSeconds, (v) => editAi("aggro", { losTimeoutSeconds: v }), 0.5)}
+          <div className="wss-subhead">Threat table</div>
+          {num("Damage mul", cat.ai.threat.damageMul, (v) => editAi("threat", { damageMul: v }), 0.05)}
+          {num("Tank mul", cat.ai.threat.tankMul, (v) => editAi("threat", { tankMul: v }), 0.05)}
+          {num("Decay /s", cat.ai.threat.decayPerSec, (v) => editAi("threat", { decayPerSec: v }), 0.1)}
+          <label className="wss-field">
+            <span>Default behavior</span>
+            <select
+              value={cat.ai.defaultBehavior}
+              onChange={(e) =>
+                editAi("root", { defaultBehavior: e.target.value as BrainBehavior })
+              }
+            >
+              {(["idle", "wander", "patrol", "follow", "pursue", "flee"] as const).map(
+                (b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+          {num("Melee telegraph (s)", cat.ai.meleeTelegraphSec, (v) => editAi("root", { meleeTelegraphSec: v }), 0.05)}
+          {num("Spell telegraph (s)", cat.ai.spellTelegraphSec, (v) => editAi("root", { spellTelegraphSec: v }), 0.05)}
+          <p className="wss-clips">
+            Yuka Vehicle steers root only. Mixer stays on the kit. Rapier owns
+            collide-and-slide. Threat, not nearest-only, picks the target.
+          </p>
         </div>
       )}
 

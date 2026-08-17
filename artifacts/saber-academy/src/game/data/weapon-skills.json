@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "note": "Weapon Skill Studio catalog. Seeded from the hard-coded gameplay values so defaults reproduce current behavior exactly. Edited live in animtest (Weapon Skill Studio) mode and saved back to this file via the dev-only /__save-skills endpoint.",
   "classSkills": {
     "warrior": [
@@ -38,5 +38,40 @@
   "rangedShots": {
     "arrow": { "releaseMs": 300, "speed": 42, "range": 46, "damage": 16, "radius": 0, "color": 16766554, "knock": 4 },
     "orb": { "castT": 1.5, "speed": 26, "range": 46, "damage": 26, "radius": 3.2, "color": 8376575, "knock": 6, "splashKnock": 6 }
+  },
+  "linear": {
+    "global": {
+      "timeScale": 1,
+      "speed": 1,
+      "range": 1,
+      "damage": 1,
+      "aoe": 1,
+      "windup": 1,
+      "glow": 1,
+      "intensity": 1,
+      "cameraShake": 1
+    }
+  },
+  "effects": [
+    { "kind": "travel", "intensity": 1, "aoe": 2.4, "speed": 18, "size": 1, "color": "#ff7733", "meshId": "orb-fire", "duration": 0.8, "attach": "weapon_tip" },
+    { "kind": "impact", "intensity": 1.2, "aoe": 3.2, "speed": 0, "size": 1.1, "color": "#ffaa44", "meshId": "sphering", "duration": 0.45, "attach": "root" },
+    { "kind": "trail", "intensity": 0.9, "aoe": 0.4, "speed": 0, "size": 1, "color": "#7ec8ff", "meshId": "slashblue", "duration": 0.35, "attach": "weapon_tip" },
+    { "kind": "residual", "intensity": 1, "aoe": 4, "speed": 12, "size": 1, "color": "#ff3355", "meshId": "slashred", "duration": 0.6, "attach": "weapon_tip" },
+    { "kind": "decal", "intensity": 0.8, "aoe": 2.8, "speed": 0, "size": 1, "color": "#446688", "meshId": "none", "duration": 1.4, "attach": "feet" },
+    { "kind": "aura", "intensity": 0.7, "aoe": 2, "speed": 0, "size": 1, "color": "#c9a04e", "meshId": "none", "duration": 1.2, "attach": "root" },
+    { "kind": "cast", "intensity": 1, "aoe": 0.8, "speed": 0, "size": 1, "color": "#b07fe8", "meshId": "staff-charge", "duration": 0.5, "attach": "R_hand" }
+  ],
+  "ai": {
+    "aggro": {
+      "detectionRadius": 25,
+      "aggroRadius": 15,
+      "assistRadius": 30,
+      "leashRadius": 50,
+      "losTimeoutSeconds": 8
+    },
+    "threat": { "tankMul": 1.5, "decayPerSec": 4, "damageMul": 1 },
+    "defaultBehavior": "pursue",
+    "meleeTelegraphSec": 0.45,
+    "spellTelegraphSec": 1.6
   }
 }

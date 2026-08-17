@@ -16,6 +16,16 @@ import seed from "./data/weapon-skills.json";
 import type { SkillDef, SkillKind } from "./skills";
 import { CAST_DEFS, type CastDef, type CastElement } from "./casting";
 import type { ClipName } from "./animations";
+import {
+  defaultAiCatalog,
+  type AiCatalog,
+} from "./brains";
+import {
+  DEFAULT_LINEAR_GLOBAL,
+  defaultPrimitive,
+  type EffectPrimitive,
+  type LinearGlobal,
+} from "./effectPrefab";
 
 /** Player ranged-shot tuning (bow arrow / staff orb LMB attacks). */
 export interface ArrowShotParams {
@@ -61,6 +71,12 @@ export interface WeaponSkillCatalog {
   hotkeys: { skill: string[]; cast: string[] };
   /** Player ranged LMB shots. */
   rangedShots: { arrow: ArrowShotParams; orb: OrbShotParams };
+  /** Linear skillshot global multipliers (Casting / LinearAbility SSOT). */
+  linear?: { global: LinearGlobal };
+  /** Isolatable effect primitives (casting effectPrefab schema). */
+  effects?: EffectPrimitive[];
+  /** Grudge AI / Yuka rings + threat (grudge-ai-brains). */
+  ai?: AiCatalog;
 }
 
 // Deep clone so the mutable runtime copy never aliases the frozen import.
@@ -84,6 +100,9 @@ export function applyCatalog(next: WeaponSkillCatalog): void {
   catalog.elementalCasts = clone(next.elementalCasts);
   catalog.hotkeys = clone(next.hotkeys);
   catalog.rangedShots = clone(next.rangedShots);
+  catalog.linear = clone(next.linear ?? { global: { ...DEFAULT_LINEAR_GLOBAL } });
+  catalog.effects = clone(next.effects ?? []);
+  catalog.ai = clone(next.ai ?? defaultAiCatalog());
   syncCastDefs();
 }
 
@@ -107,7 +126,17 @@ export function keyLabel(code: string): string {
  * the NEXT cast, never one already winding up / travelling / resolving.
  */
 export function snapshotCastDef(def: CastDef): CastDef {
-  return { ...def };
+  const g = catalog.linear?.global;
+  if (!g) return { ...def };
+  return {
+    ...def,
+    speed: def.speed * (g.speed ?? 1),
+    range: def.range * (g.range ?? 1),
+    damage: def.damage * (g.damage ?? 1),
+    radius: def.radius * (g.aoe ?? 1),
+    knock: def.knock * (g.intensity ?? 1),
+    windup: def.windup * (g.windup ?? 1),
+  };
 }
 
 /**
@@ -211,6 +240,20 @@ export const CLIP_NAMES: ClipName[] = [
   "hit",
   "death",
 ];
+
+if (!catalog.linear) catalog.linear = { global: { ...DEFAULT_LINEAR_GLOBAL } };
+if (!catalog.effects || catalog.effects.length === 0) {
+  catalog.effects = [
+    defaultPrimitive("travel"),
+    { ...defaultPrimitive("impact"), meshId: "sphering", duration: 0.45, aoe: 3.2 },
+    { ...defaultPrimitive("trail"), meshId: "slashblue", attach: "weapon_tip" },
+    { ...defaultPrimitive("residual"), meshId: "slashred", aoe: 4, speed: 12 },
+    { ...defaultPrimitive("decal"), attach: "feet", duration: 1.4 },
+    { ...defaultPrimitive("aura"), attach: "root", aoe: 2, speed: 0 },
+    { ...defaultPrimitive("cast"), attach: "R_hand", meshId: "staff-charge" },
+  ];
+}
+if (!catalog.ai) catalog.ai = defaultAiCatalog();
 
 // Keep CAST_DEFS aligned with the seed on first import (idempotent).
 syncCastDefs();
