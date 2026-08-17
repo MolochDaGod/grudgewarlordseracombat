@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "note": "Weapon Skill Studio catalog. Seeded from the hard-coded gameplay values so defaults reproduce current behavior exactly. Edited live in animtest (Weapon Skill Studio) mode and saved back to this file via the dev-only /__save-skills endpoint.",
+  "classSkills": {
+    "warrior": [
+      { "id": "whirlwind", "name": "Whirlwind", "key": "Q", "kind": "nova", "forceCost": 30, "cooldown": 6, "damage": 38, "radius": 5.2, "range": 0, "speed": 0, "color": 16757575, "texture": "crit", "blurb": "A spinning blade storm that rends every foe around you." },
+      { "id": "sunder", "name": "Sunder Charge", "key": "E", "kind": "projectile", "forceCost": 36, "cooldown": 7, "damage": 60, "radius": 2.6, "range": 30, "speed": 34, "color": 16743227, "texture": "flamestrike", "impact": "flamestrike", "blurb": "Hurl a shockwave that detonates on the first enemy it strikes." }
+    ],
+    "mage": [
+      { "id": "flame_strike", "name": "Flame Strike", "key": "Q", "kind": "projectile", "forceCost": 28, "cooldown": 5, "damage": 52, "radius": 3.2, "range": 36, "speed": 30, "color": 16734762, "texture": "flamestrike", "impact": "flamestrike", "blurb": "A roaring fireball that erupts where it lands." },
+      { "id": "frost_nova", "name": "Frost Nova", "key": "E", "kind": "nova", "forceCost": 32, "cooldown": 7, "damage": 32, "radius": 6.2, "range": 0, "speed": 0, "color": 6737151, "texture": "frostbolt", "impact": "frozen", "blurb": "Shatter the ground with an expanding ring of killing frost." }
+    ],
+    "ranger": [
+      { "id": "piercing_shot", "name": "Piercing Shot", "key": "Q", "kind": "projectile", "forceCost": 22, "cooldown": 3.5, "damage": 46, "radius": 1.8, "range": 44, "speed": 46, "color": 10289003, "texture": "arcanebolt", "impact": "crit", "blurb": "A razor-fast bolt that punches through armor at range." },
+      { "id": "arrow_storm", "name": "Arrow Storm", "key": "E", "kind": "nova", "forceCost": 34, "cooldown": 8, "damage": 30, "radius": 7, "range": 0, "speed": 0, "color": 11000063, "texture": "crit", "blurb": "Call down a rain of arrows over the whole arena floor." }
+    ],
+    "worge": [
+      { "id": "savage_pounce", "name": "Savage Pounce", "key": "Q", "kind": "projectile", "forceCost": 25, "cooldown": 4, "damage": 44, "radius": 3, "range": 22, "speed": 40, "color": 16731469, "texture": "hit", "impact": "crit", "blurb": "Lunge forward and tear into prey where you land." },
+      { "id": "bloodhowl", "name": "Bloodhowl", "key": "E", "kind": "nova", "forceCost": 30, "cooldown": 7, "damage": 34, "radius": 5.6, "range": 0, "speed": 0, "color": 16723245, "texture": "crit", "blurb": "A feral howl that savages every nearby foe." }
+    ],
+    "blade dancer": [
+      { "id": "whirlwind_dash", "name": "Whirlwind Dash", "key": "Q", "kind": "dash", "forceCost": 26, "cooldown": 5, "damage": 40, "radius": 3.4, "range": 14, "speed": 52, "color": 16743376, "texture": "crit", "impact": "crit", "blurb": "Spin forward in a whirlwind of steel, shredding all you pass." },
+      { "id": "boomerang_blade", "name": "Boomerang Blade", "key": "E", "kind": "boomerang", "forceCost": 30, "cooldown": 6, "damage": 38, "radius": 2.2, "range": 22, "speed": 40, "color": 14709407, "texture": "crit", "impact": "arcanebolt", "blurb": "Hurl your blade like a boomerang — it carves out and back to you." }
+    ]
+  },
+  "elementalCasts": [
+    { "element": "fire", "name": "Cinder Fall", "key": "1", "range": 16, "speed": 22, "damage": 26, "radius": 3.4, "knock": 16, "cost": 22, "cooldown": 5, "color": 16742195, "windup": 0.22, "castShape": "line" },
+    { "element": "ice", "name": "Frost Lance", "key": "2", "range": 13, "speed": 14, "damage": 18, "radius": 2.2, "knock": 8, "cost": 20, "cooldown": 6, "color": 9427199, "windup": 0.28, "castShape": "line" },
+    { "element": "thunder", "name": "Storm Lance", "key": "3", "range": 18, "speed": 0, "damage": 22, "radius": 2.0, "knock": 10, "cost": 26, "cooldown": 7, "color": 13609471, "windup": 0.16, "castShape": "line" },
+    { "element": "nova", "name": "Nova Beam", "key": "4", "range": 20, "speed": 60, "damage": 10, "radius": 1.8, "knock": 6, "cost": 30, "cooldown": 9, "color": 6277375, "windup": 0.55, "castShape": "line", "hold": 1.2 },
+    { "element": "snare", "name": "Voltaic Snare", "key": "5", "range": 15, "speed": 46, "damage": 20, "radius": 3.2, "knock": 9, "cost": 26, "cooldown": 8, "color": 9067775, "windup": 0.2, "castShape": "zone", "zoneRadius": 3.2, "hold": 1.0 },
+    { "element": "volley", "name": "Rain of Arrows", "key": "6", "range": 16, "speed": 40, "damage": 9, "radius": 3.5, "knock": 4, "cost": 24, "cooldown": 9, "color": 16766554, "windup": 0.2, "castShape": "zone", "zoneRadius": 3.5, "hold": 1.4 }
+  ],
+  "hotkeys": {
+    "skill": ["KeyQ", "KeyE"],
+    "cast": ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"]
+  },
+  "rangedShots": {
+    "arrow": { "releaseMs": 300, "speed": 42, "range": 46, "damage": 16, "radius": 0, "color": 16766554, "knock": 4 },
+    "orb": { "castT": 1.5, "speed": 26, "range": 46, "damage": 26, "radius": 3.2, "color": 8376575, "knock": 6, "splashKnock": 6 }
+  }
+}

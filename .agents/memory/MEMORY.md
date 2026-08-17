@@ -1,0 +1,16 @@
+- [Saber physics layering](saber-physics-layering.md) — Rapier/BVH are best-effort layers over the math engine; null-guard and fall back to math movement + flat ground.
+- [Projectile sweep collision](saber-projectile-sweep.md) — fast projectiles need swept-segment collision, not per-frame point checks, or they tunnel at the dt cap.
+- [Saber skeletal paths](saber-academy-skeletal.md) — three skeletal paths; self-contained rigged FBX (clips in same skeleton) is most robust. Root models between feet.
+- [Saber arena boundary](saber-arena-boundary.md) — arena edge is a real boundary-wall collider, not a radius clamp; lean on Rapier+BVH to bound player and enemies.
+- [Saber strafe-clip basis](saber-academy-skeletal.md) — anim "right" must match camRight `(-cos,0,sin)` or strafe clips swap; they only fire when strafe-locked.
+- [Saber clip timeScale](saber-academy-skeletal.md) — mixer clips play fixed unless time-scaled; crossfadeTo resets timeScale to 1, so re-apply per-clip overrides every frame.
+- [Saber lock-on facing](saber-lockon-facing.md) — "runs sideways" reports were lock-on strafe-lock design, not model/anim; measure the rig headlessly before blaming facing math.
+- [Saber camera](saber-camera.md) — self-owned orbit follow cam; keep camYaw == camera heading so camera-relative movement stays valid.
+- [Saber weapon grip](saber-weapon-grip.md) — attached FBX-rig weapons orient via skeleton-derived gripFromHandBone (align +Y to hand→child dir), not a fixed Euler.
+- [GLTF node-name sanitization](gltf-node-name-sanitization.md) — loaders rewrite spaces/colons in bone names; match by normalized name, not raw names.
+- [Retarget bake health](retarget-bake-health.md) — mixamorig→Bip001 world-delta bake is sound; broken champ anim = procedural fallback, not the baker.
+- [Meshy characters](meshy-characters.md) — Meshy rigs are prefix-less Mixamo-style skeletons; retarget with a Meshy bone map, cache per model, never commit the pipeline state file.
+- [Saber casting reference repos](saber-casting-reference.md) — MolochDaGod repos are the required design source for casting skills, VFX, and HUD; clone to /tmp/refsrc and mine before inventing.
+- [Standout minion FBX rigs](standout-minions.md) — duplicate-named nested bone chains: bake/bind first-DFS bone; shared weapon clones must skip per-instance dispose.
+- [ShellExec background kill](shellexec-background.md) — `nohup &` dies with the shell session; run resumable scripts in foreground `timeout` chunks.
+- [Grudge asset CDN quirks](grudge-asset-cdn.md) — assets.grudge-studio.com 404s keys with spaces and 403s non-browser UAs; keep R2 keys space-free, verify with curl not urllib.

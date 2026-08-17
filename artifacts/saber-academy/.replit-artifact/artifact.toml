@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Grudge Gladiators"
+version = "1.0.0"
+id = "artifacts/saber-academy"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20129
+
+[services.development]
+run = "pnpm --filter @workspace/saber-academy run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/saber-academy", "run", "build" ]
+publicDir = "artifacts/saber-academy/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20129"
+BASE_PATH = "/"

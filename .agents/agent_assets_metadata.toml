@@ -1,0 +1,25 @@
+uploads = []
+
+[[generated]]
+id = "tzAXV7Z3y7CUQN94MFbuB"
+uri = "file://artifacts/saber-academy-trailer/public/images/champion-select.png"
+type = "image"
+title = "Futuristic champion select holographic UI"
+
+[[generated]]
+id = "oNOzNcuI9puem9S7aw8St"
+uri = "file://artifacts/saber-academy-trailer/public/images/saber-weapon.png"
+type = "image"
+title = "Glowing sci-fi sword weapon"
+
+[[generated]]
+id = "Zd2KSDcD-M0a86zkb5F12"
+uri = "file://artifacts/saber-academy-trailer/public/images/skill-effect.png"
+type = "image"
+title = "Action combat explosion effect"
+
+[[outputs]]
+id = "nc9mTUaMZDln7u9klOYva"
+uri = "file://artifacts/saber-academy-trailer/public/audio/bg_music.mp3"
+type = "audio"
+title = "background music"

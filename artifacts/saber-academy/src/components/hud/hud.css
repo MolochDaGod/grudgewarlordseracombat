@@ -1,0 +1,522 @@
+/* RPG/MMO HUD skinned with the uploaded UI texture kit (public/ui). */
+
+.mmo-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: "Rajdhani", "Segoe UI", sans-serif;
+  color: #e8dcc0;
+  user-select: none;
+  z-index: 5;
+}
+.mmo-hud img {
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ---------- movable panels ---------- */
+.mmo-panel {
+  position: absolute;
+}
+.mmo-hud.edit-mode {
+  pointer-events: auto;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.mmo-panel.editing {
+  outline: 2px dashed rgba(255, 214, 90, 0.85);
+  outline-offset: 4px;
+  cursor: grab;
+  pointer-events: auto;
+}
+.mmo-panel.editing:active {
+  cursor: grabbing;
+}
+.mmo-panel-tag {
+  position: absolute;
+  top: -22px;
+  left: 0;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: rgba(20, 14, 8, 0.9);
+  border: 1px solid rgba(255, 214, 90, 0.5);
+  padding: 1px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.mmo-edit-banner {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: rgba(20, 14, 8, 0.92);
+  border: 1px solid rgba(255, 214, 90, 0.6);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  pointer-events: auto;
+  z-index: 30;
+}
+.mmo-btn {
+  font: inherit;
+  font-size: 12px;
+  color: #ffe9b0;
+  background: rgba(90, 60, 20, 0.9);
+  border: 1px solid rgba(255, 214, 90, 0.5);
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.mmo-btn:hover {
+  background: rgba(130, 90, 30, 0.95);
+}
+
+/* ---------- unit frames ---------- */
+.unit-frame {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 240px;
+  padding: 8px 12px;
+  background-image: var(--ui-uf-bg);
+  background-size: 100% 100%;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+.unit-frame.target {
+  min-width: 220px;
+  background-image: var(--ui-uf-red), var(--ui-uf-bg);
+}
+.unit-frame.placeholder {
+  opacity: 0.5;
+}
+.uf-avatar {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+}
+.uf-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.uf-avatar-glyph {
+  font-size: 24px;
+  font-weight: 800;
+  text-shadow: 0 0 8px currentColor;
+}
+.uf-body {
+  flex: 1;
+  min-width: 0;
+}
+.uf-name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.uf-guard,
+.uf-lock {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: #ffd65a;
+}
+.uf-bar {
+  position: relative;
+  height: 14px;
+  margin-top: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(120, 90, 50, 0.8);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.uf-bar.mp {
+  height: 10px;
+}
+.uf-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  overflow: hidden;
+  transition: width 0.15s ease-out;
+}
+.uf-fill img {
+  height: 100%;
+  width: 240px;
+  object-fit: fill;
+}
+.uf-bar-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 2px #000;
+}
+.uf-level {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+}
+.uf-level img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.uf-level span {
+  position: relative;
+  font-size: 13px;
+  font-weight: 800;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* ---------- cast bar ---------- */
+.cast-bar {
+  position: relative;
+  width: 300px;
+  height: 26px;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.6));
+}
+.cast-bar.empty {
+  width: 300px;
+  height: 26px;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+}
+.cb-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.cb-fill {
+  position: absolute;
+  left: 4%;
+  top: 22%;
+  height: 56%;
+  max-width: 92%;
+  border-radius: 3px;
+  opacity: 0.9;
+  transition: width 0.05s linear;
+}
+.cb-name {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px #000;
+}
+
+/* ---------- action dock ---------- */
+.action-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.xp-bar {
+  position: relative;
+  width: 420px;
+  height: 10px;
+}
+.xp-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.xp-fill {
+  position: absolute;
+  left: 1%;
+  top: 20%;
+  height: 60%;
+  overflow: hidden;
+}
+.xp-fill img {
+  height: 100%;
+  width: 412px;
+  object-fit: fill;
+}
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.slot-row {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(12, 8, 4, 0.65);
+  border: 1px solid rgba(120, 90, 50, 0.6);
+  border-radius: 8px;
+}
+.ab-slot {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  opacity: 0.85;
+}
+.ab-slot.ready {
+  opacity: 1;
+}
+.ab-slot.ready .ab-icon {
+  filter: none;
+}
+.ab-bg,
+.ab-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.ab-icon {
+  position: absolute;
+  inset: 12%;
+  width: 76%;
+  height: 76%;
+  filter: grayscale(0.7) brightness(0.75);
+}
+.ab-cd {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 6%;
+  background: rgba(0, 0, 0, 0.72);
+  border-radius: 4px;
+}
+.ab-key {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffe9b0;
+  text-shadow: 0 1px 2px #000;
+  z-index: 2;
+}
+
+/* ---------- globes ---------- */
+.mmo-globe {
+  position: relative;
+  width: 74px;
+  height: 70px;
+}
+.globe-empty,
+.globe-fill,
+.globe-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.globe-fill {
+  transition: clip-path 0.2s ease-out;
+}
+.globe-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  text-shadow: 0 1px 3px #000;
+  z-index: 2;
+}
+
+/* ---------- info / combo ---------- */
+.info-panel {
+  text-align: right;
+  padding: 10px 14px;
+  background: rgba(12, 8, 4, 0.65);
+  border: 1px solid rgba(120, 90, 50, 0.6);
+  border-radius: 8px;
+}
+.info-score {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.info-line {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.info-line.dim {
+  opacity: 0.7;
+}
+.mmo-combo {
+  text-align: center;
+}
+.mmo-combo.placeholder {
+  opacity: 0.45;
+}
+.mmo-combo-num {
+  display: block;
+  font-size: 42px;
+  font-weight: 800;
+  color: #ffd65a;
+  text-shadow: 0 0 14px rgba(255, 180, 40, 0.7);
+}
+.mmo-combo-text {
+  font-size: 11px;
+  letter-spacing: 0.3em;
+}
+
+/* ---------- menu button ---------- */
+.mmo-menu-btn {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.mmo-menu-btn img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.mmo-menu-btn:hover {
+  filter: brightness(1.25);
+}
+
+/* ---------- windows ---------- */
+.mmo-window {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 280px;
+  background-image: var(--ui-win-bg);
+  background-size: 128px 128px;
+  border: 2px solid rgba(120, 90, 50, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+  pointer-events: auto;
+  z-index: 40;
+}
+.mmo-window-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-image: var(--ui-win-header);
+  background-size: 100% 100%;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.mmo-close {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(90, 30, 20, 0.9) var(--ui-close-bg) center/contain no-repeat;
+  color: #ffe9b0;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mmo-close:hover {
+  filter: brightness(1.3);
+}
+.mmo-window-body {
+  padding: 14px 16px 16px;
+}
+.menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+}
+.menu-btn {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #2a1a08;
+  padding: 8px 0;
+  border: none;
+  border-radius: 5px;
+  background: var(--ui-menu-btn) center/100% 100% no-repeat;
+  cursor: pointer;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.menu-btn:hover {
+  background-image: var(--ui-menu-btn-hover);
+}
+
+/* ---------- character window ---------- */
+.char-window {
+  min-width: 340px;
+}
+.char-title {
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.char-faction {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  margin-bottom: 10px;
+}
+.equip-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 46px);
+  gap: 6px;
+  justify-content: center;
+}
+.equip-slot {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  opacity: 0.7;
+}
+.equip-slot.filled {
+  opacity: 1;
+}
+.es-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.es-icon {
+  position: absolute;
+  inset: 12%;
+  width: 76%;
+  height: 76%;
+}
+.char-weapon-line {
+  margin-top: 12px;
+  font-size: 13px;
+  text-align: center;
+}

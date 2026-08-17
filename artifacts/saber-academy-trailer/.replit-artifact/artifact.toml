@@ -1,0 +1,31 @@
+kind = "video"
+previewPath = "/trailer/"
+title = "Saber Academy Trailer"
+version = "1.0.0"
+id = "artifacts/saber-academy-trailer"
+router = "path"
+
+[[integratedSkills]]
+name = "video-js"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/trailer/" ]
+localPort = 22874
+
+[services.development]
+run = "pnpm --filter @workspace/saber-academy-trailer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/saber-academy-trailer", "run", "build" ]
+publicDir = "artifacts/saber-academy-trailer/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22874"
+BASE_PATH = "/trailer/"
