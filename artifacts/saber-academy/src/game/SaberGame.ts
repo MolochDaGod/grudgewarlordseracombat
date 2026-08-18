@@ -4913,6 +4913,7 @@ export class SaberGame {
     else if (skill.kind === "boomerang") this.spawnBoomerang(skill);
     else if (skill.kind === "dash") this.startSpinDash(skill);
     else if (skill.kind === "heal") this.spawnHealSkill(skill);
+    else if (skill.kind === "push") this.spawnForcePush(skill);
     else this.spawnNova(skill);
 
     // Apply self-targeted buffs immediately on cast (heal, haste, etc.).
@@ -5073,6 +5074,7 @@ export class SaberGame {
     else if (skill.kind === "boomerang") this.spawnBoomerang(skill);
     else if (skill.kind === "dash") this.startSpinDash(skill);
     else if (skill.kind === "heal") this.spawnHealSkill(skill);
+    else if (skill.kind === "push") this.spawnForcePush(skill);
     else this.spawnNova(skill);
     if (skill.buffs?.length) this.applyBuffsToSelf(skill.buffs);
     if (skill.mobility) this.trailTimer = Math.max(this.trailTimer, 0.35);
@@ -5532,27 +5534,48 @@ export class SaberGame {
     }
     this.force = Math.max(0, this.force - PUSH_COST);
     this.pushCooldown = PUSH_CD;
+    this.spawnForcePush({
+      id: "force-push",
+      name: "Force Push",
+      key: "R",
+      kind: "push",
+      forceCost: 0,
+      cooldown: 0,
+      damage: 0,
+      radius: PUSH_RADIUS,
+      range: 0,
+      speed: 0,
+      color: this.colorHex(this.factionColor),
+      texture: "hit",
+      blurb: "",
+    });
+  }
+
+  /** Radial knock — R Force Push and library `push` skills. */
+  private spawnForcePush(skill: SkillDef): void {
     const center = this.player.position;
+    const radius = Math.max(3, skill.radius || PUSH_RADIUS);
+    const power = 14 + (skill.damage || 0) * 0.25;
     for (const e of this.enemies) {
       if (!this.isPlayerFoe(e)) continue;
       const d = e.inst.group.position.distanceTo(center);
-      if (d > PUSH_RADIUS) continue;
+      if (d > radius) continue;
       const away = e.inst.group.position.clone().sub(center).setY(0);
       if (away.lengthSq() > 1e-4) away.normalize();
       else away.copy(this.facingDir());
       // Closer enemies get launched harder.
-      const falloff = 1 - (d / PUSH_RADIUS) * 0.5;
-      this.applyKnockback(e, away, PUSH_POWER * falloff);
+      const falloff = 1 - (d / radius) * 0.5;
+      this.applyKnockback(e, away, power * falloff);
       e.stagger = Math.max(e.stagger, 0.6);
       e.swing = 0;
     }
-    // Expanding shock ring + flash, reusing the nova VFX lifecycle.
+    const tint = skill.color || this.colorHex(this.factionColor);
     const obj = new THREE.Group();
     obj.position.copy(center).setY(0.06);
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.4, 0.7, 48),
       new THREE.MeshBasicMaterial({
-        color: this.colorHex(this.factionColor),
+        color: tint,
         side: THREE.DoubleSide,
         transparent: true,
         blending: THREE.AdditiveBlending,
@@ -5561,7 +5584,7 @@ export class SaberGame {
     );
     ring.rotation.x = -Math.PI / 2;
     obj.add(ring);
-    const flash = this.makeVfxSprite("hit", this.colorHex(this.factionColor), 3.4);
+    const flash = this.makeVfxSprite(skill.texture || "hit", tint, 3.4);
     flash.position.set(0, 1.1, 0);
     obj.add(flash);
     this.scene.add(obj);
@@ -5569,9 +5592,15 @@ export class SaberGame {
       obj,
       ring,
       flash,
-      radius: PUSH_RADIUS,
+      radius,
       life: 0.55,
       maxLife: 0.55,
+    });
+    this.spawnSmoke(center.clone().setY(1.1), tint, {
+      style: "rise",
+      element: inferElement({ texture: skill.texture, color: tint, name: skill.name }),
+      size: 0.7,
+      duration: 0.55,
     });
     this.cameraShake(0.6, 260);
     this.emit();

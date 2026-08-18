@@ -30,6 +30,7 @@ import {
   type EffectPrimitive,
   type LinearGlobal,
 } from "./effectPrefab";
+import { ABILITY_LIBRARY, type LibraryAbility } from "./abilityLibrary";
 
 /** Player ranged-shot tuning (bow arrow / staff orb LMB attacks). */
 export interface ArrowShotParams {
@@ -96,6 +97,8 @@ export interface WeaponSkillCatalog {
   mm?: { playerMm: number };
   /** Avatar bend design (playground → existing casts). */
   bending?: { selected: "fire" | "water" | "earth" | "wind" };
+  /** 50-ability design library (assign to Q/E). */
+  abilityLibrary?: LibraryAbility[];
 }
 
 // Deep clone so the mutable runtime copy never aliases the frozen import.
@@ -125,6 +128,7 @@ export function applyCatalog(next: WeaponSkillCatalog): void {
   catalog.animPacks = clone(next.animPacks ?? {});
   catalog.mm = clone(next.mm ?? { playerMm: 40 });
   catalog.bending = clone(next.bending ?? { selected: "fire" });
+  catalog.abilityLibrary = clone(next.abilityLibrary ?? ABILITY_LIBRARY);
   setClipSetOverride(catalog.animPacks);
   syncCastDefs();
 }
@@ -239,6 +243,7 @@ export const SKILL_KINDS: SkillKind[] = [
   "dash",
   "boomerang",
   "heal",
+  "push",
 ];
 
 /** Cast element ids selectable in the Studio. */
@@ -287,6 +292,9 @@ if (!catalog.effects || catalog.effects.length === 0) {
 if (!catalog.ai) catalog.ai = defaultAiCatalog();
 if (!catalog.mm) catalog.mm = { playerMm: 40 };
 if (!catalog.animPacks) catalog.animPacks = {};
+if (!catalog.abilityLibrary || catalog.abilityLibrary.length < 50) {
+  catalog.abilityLibrary = clone(ABILITY_LIBRARY);
+}
 setClipSetOverride(catalog.animPacks);
 
 // Keep CAST_DEFS aligned with the seed on first import (idempotent).
