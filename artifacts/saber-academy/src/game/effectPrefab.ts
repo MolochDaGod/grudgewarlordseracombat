@@ -76,6 +76,7 @@ export const EFFECT_MESH_IDS = [
   "summon-fire-fist",
   "summon-ice-shard",
   "sphering",
+  "warcry",
 ] as const;
 
 export interface LinearGlobal {

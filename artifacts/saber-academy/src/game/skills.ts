@@ -40,23 +40,39 @@ export interface SkillDef {
    * Absent / empty → no status effect (defaults keep current gameplay).
    */
   buffs?: import("./buffs").BuffDef[];
+  /** Wind-up seconds before the skill resolves. 0 / omit = instant. */
+  castT?: number;
+  /** GLB under public/models/vfx/<meshId>.glb (warcry circle, etc.). */
+  meshId?: string;
+  /** On blast, lock enemy threat onto the player. */
+  taunt?: boolean;
+  /**
+   * During castT the same timer is the mobility window: dash-blur trail
+   * and i-frames stay open so the warrior can move inside the circle.
+   */
+  mobility?: boolean;
 }
 
 const WARRIOR: SkillDef[] = [
   {
-    id: "whirlwind",
-    name: "Whirlwind",
+    id: "warcry",
+    name: "Warcry",
     key: "Q",
     kind: "nova",
     forceCost: 30,
-    cooldown: 6,
-    damage: 38,
-    radius: 5.2,
+    cooldown: 8,
+    damage: 36,
+    radius: 7,
     range: 0,
     speed: 0,
-    color: 0xffb347,
-    texture: "crit",
-    blurb: "A spinning blade storm that rends every foe around you.",
+    color: 0xff5533,
+    texture: "flamestrike",
+    impact: "crit",
+    castT: 1.35,
+    meshId: "warcry",
+    taunt: true,
+    mobility: true,
+    blurb: "Plant a war-circle, then detonate it — taunt every foe in the blast.",
   },
   {
     id: "sunder",

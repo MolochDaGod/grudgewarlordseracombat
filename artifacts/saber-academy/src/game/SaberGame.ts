@@ -865,6 +865,26 @@ export class SaberGame {
   /** Casts winding up (aura phase); released when their timer elapses. */
   private pendingCasts: { def: CastDef; t: number; aura: THREE.Sprite }[] = [];
 
+  /**
+   * Signature skill with a cast timer (Warcry): circle VFX + HUD bar.
+   * The same timer is the mobility / dash-blur window when skill.mobility.
+   */
+  private pendingSkill: {
+    skill: SkillDef;
+    t: number;
+    dur: number;
+    resolved: boolean;
+    fade: number;
+    root: THREE.Object3D | null;
+    mixer: THREE.AnimationMixer | null;
+  } | null = null;
+
+  private warcryProto: {
+    scene: THREE.Object3D;
+    clip: THREE.AnimationClip | null;
+    extent: number;
+  } | null = null;
+
   /** MOBA-style linear aim strip shown while a cast winds up. */
   private castAimLine: CastAimLine | null = null;
 
@@ -1586,6 +1606,7 @@ export class SaberGame {
     this.telegraphs = null;
     for (const p of this.pendingCasts) this.disposeCastAura(p.aura);
     this.pendingCasts = [];
+    this.clearSkillCast();
     this.softTarget = null;
     if (this.softMarker) {
       const mat = this.softMarker.material as THREE.SpriteMaterial;
@@ -4555,6 +4576,10 @@ export class SaberGame {
     if (this.phase !== "playing") return;
     const skill = this.skills[index];
     if (!skill) return;
+    if (this.pendingSkill && !this.pendingSkill.resolved) {
+      this.setMessage("Already casting", 0.6);
+      return;
+    }
     if (this.cooldowns[index] > 0) {
       this.setMessage(`${skill.name} cooling down`, 0.8);
       return;
@@ -4565,6 +4590,12 @@ export class SaberGame {
     }
     this.force = Math.max(0, this.force - skill.forceCost);
     this.cooldowns[index] = skill.cooldown;
+
+    if ((skill.castT ?? 0) > 0) {
+      this.beginSkillCast(skill);
+      this.emit();
+      return;
+    }
 
     // Play the strike (cast) pose without enabling the melee hit window.
     this.attackTimer = ATTACK_DUR;
@@ -4580,6 +4611,181 @@ export class SaberGame {
 
     this.cameraShake(0.3, 160);
     this.emit();
+  }
+
+  /**
+   * Timed signature skill (Warcry): HUD cast bar + circle on terrain with the
+   * warrior in the middle. If mobility, the same castT is the dash-blur window.
+   * Blast + taunt fire when the timer ends.
+   */
+  private beginSkillCast(skill: SkillDef): void {
+    const dur = Math.max(0.2, skill.castT ?? 1);
+    this.clearSkillCast();
+    this.pendingSkill = {
+      skill,
+      t: dur,
+      dur,
+      resolved: false,
+      fade: 0,
+      root: null,
+      mixer: null,
+    };
+    this.castAnimDur = dur;
+    this.castAnimT = dur;
+    if (skill.mobility) {
+      this.trailTimer = Math.max(this.trailTimer, dur);
+    }
+    this.setMessage(skill.name, 0.8);
+    void this.attachSkillMesh(skill);
+  }
+
+  private async attachSkillMesh(skill: SkillDef): Promise<void> {
+    const id = skill.meshId;
+    if (!id || !this.pendingSkill || this.pendingSkill.skill.id !== skill.id) {
+      return;
+    }
+    const proto = await this.ensureWarcryProto(id);
+    if (!proto || !this.pendingSkill || this.pendingSkill.skill.id !== skill.id) {
+      return;
+    }
+    const root = proto.scene.clone(true);
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const cloned = mats.map((m) => {
+        const c = m.clone();
+        c.transparent = true;
+        c.depthWrite = false;
+        return c;
+      });
+      mesh.material = cloned.length === 1 ? cloned[0] : cloned;
+    });
+    const diam = Math.max(2, skill.radius * 2);
+    const s = diam / Math.max(proto.extent, 0.25);
+    root.scale.setScalar(s);
+    const p = this.player.position;
+    root.position.set(p.x, this.groundAt(p.x, p.z) + 0.03, p.z);
+    this.scene.add(root);
+    let mixer: THREE.AnimationMixer | null = null;
+    if (proto.clip) {
+      mixer = new THREE.AnimationMixer(root);
+      const act = mixer.clipAction(proto.clip);
+      act.setLoop(THREE.LoopOnce, 1);
+      act.clampWhenFinished = true;
+      const clipDur = Math.max(0.05, proto.clip.duration);
+      act.timeScale = clipDur / Math.max(this.pendingSkill.dur, 0.05);
+      act.play();
+    }
+    this.pendingSkill.root = root;
+    this.pendingSkill.mixer = mixer;
+  }
+
+  private async ensureWarcryProto(
+    meshId: string,
+  ): Promise<{ scene: THREE.Object3D; clip: THREE.AnimationClip | null; extent: number } | null> {
+    if (this.warcryProto) return this.warcryProto;
+    const url = `${import.meta.env.BASE_URL}models/vfx/${meshId}.glb`;
+    try {
+      const gltf = await new GLTFLoader().loadAsync(url);
+      const scene = gltf.scene;
+      const clip = gltf.animations[0] ?? null;
+      const extent = this.measureClipExtent(scene, clip);
+      this.warcryProto = { scene, clip, extent };
+      return this.warcryProto;
+    } catch (err) {
+      console.warn("Warcry VFX failed to load; using ring fallback.", err);
+      return null;
+    }
+  }
+
+  /** Peak XZ footprint of a Sketchfab VFX after its scale-up clip plays. */
+  private measureClipExtent(
+    scene: THREE.Object3D,
+    clip: THREE.AnimationClip | null,
+  ): number {
+    const root = scene.clone(true);
+    if (!clip) {
+      root.updateMatrixWorld(true);
+      const size = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3());
+      return Math.max(size.x, size.z, 0.5);
+    }
+    const mixer = new THREE.AnimationMixer(root);
+    mixer.clipAction(clip).play();
+    let maxE = 0.5;
+    const steps = 8;
+    for (let i = 1; i <= steps; i++) {
+      mixer.setTime((clip.duration * i) / steps);
+      root.updateMatrixWorld(true);
+      const size = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3());
+      maxE = Math.max(maxE, size.x, size.z);
+    }
+    mixer.stopAllAction();
+    mixer.uncacheRoot(root);
+    return maxE;
+  }
+
+  private updateSkillCast(dt: number): void {
+    const p = this.pendingSkill;
+    if (!p) return;
+    p.mixer?.update(dt);
+    const pos = this.player.position;
+    if (p.root) {
+      p.root.position.set(pos.x, this.groundAt(pos.x, pos.z) + 0.03, pos.z);
+    }
+    if (!p.resolved) {
+      p.t -= dt;
+      if (p.t <= 0) {
+        p.t = 0;
+        p.resolved = true;
+        p.fade = 0.45;
+        this.resolveSkillCast(p.skill);
+      }
+      return;
+    }
+    p.fade -= dt;
+    const k = THREE.MathUtils.clamp(p.fade / 0.45, 0, 1);
+    if (p.root) {
+      p.root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) {
+          const mat = m as THREE.Material & { opacity?: number };
+          if (typeof mat.opacity === "number") mat.opacity = k;
+        }
+      });
+    }
+    if (p.fade <= 0) this.clearSkillCast();
+  }
+
+  private resolveSkillCast(skill: SkillDef): void {
+    if (skill.kind === "projectile") this.spawnProjectile(skill);
+    else if (skill.kind === "boomerang") this.spawnBoomerang(skill);
+    else if (skill.kind === "dash") this.startSpinDash(skill);
+    else this.spawnNova(skill);
+    if (skill.buffs?.length) this.applyBuffsToSelf(skill.buffs);
+    if (skill.mobility) this.trailTimer = Math.max(this.trailTimer, 0.35);
+    this.cameraShake(0.55, 240);
+  }
+
+  private clearSkillCast(): void {
+    const p = this.pendingSkill;
+    if (!p) return;
+    if (p.mixer && p.root) {
+      p.mixer.stopAllAction();
+      p.mixer.uncacheRoot(p.root);
+    }
+    if (p.root) {
+      this.scene.remove(p.root);
+      p.root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) m.dispose();
+      });
+    }
+    this.pendingSkill = null;
   }
 
   /** Get (and cache) a VFX texture; loads async, never blocks gameplay. */
@@ -4717,6 +4923,7 @@ export class SaberGame {
 
   private spawnNova(skill: SkillDef): void {
     const center = this.player.position.clone();
+    const now = performance.now() / 1000;
     // Immediate AoE: hit every living foe within the radius right now.
     for (const e of this.enemies) {
       if (!this.isPlayerFoe(e)) continue;
@@ -4730,6 +4937,7 @@ export class SaberGame {
         // Knockback before damage so a killing blow ragdolls with the impulse.
         this.applyKnockback(e, dir, 10);
         this.damageEnemy(e, skill.damage, skill.color, skill.buffs);
+        if (skill.taunt) e.threat.taunt("player", now);
       }
     }
     this.cameraShake(0.5, 220);
@@ -5517,6 +5725,7 @@ export class SaberGame {
           this.updateTimers(COMBAT_DT);
           this.updateAnimTest(COMBAT_DT);
           this.updatePendingCasts(COMBAT_DT);
+          this.updateSkillCast(COMBAT_DT);
           this.telegraphs?.update(COMBAT_DT);
           this.updateVfx(COMBAT_DT);
           this.updatePlayerAnim(COMBAT_DT);
@@ -6993,6 +7202,7 @@ export class SaberGame {
     this.telegraphs?.clear();
     for (const p of this.pendingCasts) this.disposeCastAura(p.aura);
     this.pendingCasts = [];
+    this.clearSkillCast();
     this.castCooldowns = CAST_DEFS.map(() => 0);
     this.simAccum = 0;
     this.ticker.accum = 0;
@@ -7119,6 +7329,14 @@ export class SaberGame {
           : undefined;
       })(),
       castBar: (() => {
+        if (this.pendingSkill && !this.pendingSkill.resolved) {
+          const s = this.pendingSkill;
+          return {
+            name: s.skill.name,
+            t01: THREE.MathUtils.clamp(1 - s.t / Math.max(s.dur, 0.01), 0, 1),
+            color: `#${s.skill.color.toString(16).padStart(6, "0")}`,
+          };
+        }
         if (this.arcaneCharge > 0) {
           const dur = this.rangedChargeDur || this.castAnimDur || ARCANE_CAST_T;
           return {

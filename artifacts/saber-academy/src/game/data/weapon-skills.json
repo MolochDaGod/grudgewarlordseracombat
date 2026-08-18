@@ -3,7 +3,7 @@
   "note": "Weapon Skill Studio catalog. Seeded from the hard-coded gameplay values so defaults reproduce current behavior exactly. Edited live in animtest (Weapon Skill Studio) mode and saved back to this file via the dev-only /__save-skills endpoint.",
   "classSkills": {
     "warrior": [
-      { "id": "whirlwind", "name": "Whirlwind", "key": "Q", "kind": "nova", "forceCost": 30, "cooldown": 6, "damage": 38, "radius": 5.2, "range": 0, "speed": 0, "color": 16757575, "texture": "crit", "blurb": "A spinning blade storm that rends every foe around you." },
+      { "id": "warcry", "name": "Warcry", "key": "Q", "kind": "nova", "forceCost": 30, "cooldown": 8, "damage": 36, "radius": 7, "range": 0, "speed": 0, "color": 16733500, "texture": "flamestrike", "impact": "crit", "castT": 1.35, "meshId": "warcry", "taunt": true, "mobility": true, "blurb": "Plant a war-circle, then detonate it — taunt every foe in the blast." },
       { "id": "sunder", "name": "Sunder Charge", "key": "E", "kind": "projectile", "forceCost": 36, "cooldown": 7, "damage": 60, "radius": 2.6, "range": 30, "speed": 34, "color": 16743227, "texture": "flamestrike", "impact": "flamestrike", "blurb": "Hurl a shockwave that detonates on the first enemy it strikes." }
     ],
     "mage": [
