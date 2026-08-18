@@ -100,6 +100,12 @@ export interface RawClip {
 
 const fbxLoader = new FBXLoader();
 
+/** Drop every `.position` track so a grounded kit does not hip-float. */
+export function stripPositionTracks(clip: THREE.AnimationClip): THREE.AnimationClip {
+  clip.tracks = clip.tracks.filter((t) => !/\.position$/i.test(t.name));
+  return clip;
+}
+
 function clipUrl(rel: string): string {
   return `${BASE}/${rel.split("/").map(encodeURIComponent).join("/")}`;
 }
@@ -127,11 +133,8 @@ function loadFbxRaw(
               reject(new Error(`No animation track found in "${rel}"`));
               return;
             }
-            // Drop the hip translation so locomotion stays in place; the engine
-            // owns world position and vertical (jump) motion.
-            clip.tracks = clip.tracks.filter(
-              (t) => !/Hips\.position$/i.test(t.name),
-            );
+            // Rotation-only: kit is already grounded. Engine owns world XZ/Y.
+            clip.tracks = stripPositionTracks(clip).tracks;
             resolve({ group, clip });
           },
           undefined,
@@ -168,7 +171,7 @@ export function loadClip(url: string, name: ClipName): Promise<THREE.AnimationCl
             reject(new Error(`No animation track found in "${url}"`));
             return;
           }
-          clip.tracks = clip.tracks.filter((t) => !/Hips\.position$/i.test(t.name));
+          clip.tracks = stripPositionTracks(clip).tracks;
           clip.name = name;
           resolve(clip);
         },

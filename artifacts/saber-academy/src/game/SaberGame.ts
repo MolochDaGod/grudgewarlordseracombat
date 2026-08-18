@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { AdvancedLightingSystem } from "grudge-studio/tools";
 import { CastingSystem, CastAimLine, CAST_DEFS, type CastDef } from "./casting";
 import { TelegraphSystem } from "./telegraphs";
@@ -58,6 +59,7 @@ import {
 import { saveCatalog } from "./studio";
 import { mmForWeapon, enemyStandoff } from "./mm";
 import { initRapier, PhysicsWorld, type CharacterBody } from "./physics";
+import { toonRaceKitUrl } from "@/lib/fleetAssets";
 import { StaticWorldBVH, makeBodyHitter, type BodyHitter } from "./worldbvh";
 import {
   CombatSteering,
@@ -568,6 +570,12 @@ const GUARD_SPEED = 3.2;
 const DASH_SPEED = 40;
 const DASH_TIME = 0.18;
 const DASH_COST = 26;
+/** MMB pistol-draw tentacle hook: shoot at crosshair, dash to the hit. */
+const GRAPPLE_RANGE = 22;
+const GRAPPLE_COST = 14;
+const GRAPPLE_CD = 0.85;
+const GRAPPLE_SPEED = 32;
+const GRAPPLE_SHOOT = 0.12;
 const DASH_WINDOW = 0.28;
 const DODGE_IFRAMES = 0.34;
 const PARRY_WINDOW = 0.26;
@@ -995,6 +1003,17 @@ export class SaberGame {
   private dashTimer = 0;
 
   private dashCooldown = 0;
+  private grappleCd = 0;
+  private grapple: {
+    mesh: THREE.Object3D;
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    nativeLen: number;
+    t: number;
+    flying: boolean;
+  } | null = null;
+  private tentacleTpl: THREE.Object3D | null = null;
+  private tentacleLen = 17.7;
 
   /** Dodge invulnerability window (skips incoming damage while > 0). */
   private iFrames = 0;
@@ -1853,8 +1872,15 @@ export class SaberGame {
     if (player.rig === "toonrts") {
       try {
         const template = await loadToonRtsTemplate(player.modelUrl);
-        this.playerAnimMode = "Skeletal (Toon RTS, embedded clips)";
-        return instantiateToonRts(template, color, player.weapon);
+        const library = await this.ensureBip001Clips(
+          template.scene,
+          category,
+          "toonrts",
+        );
+        this.playerAnimMode = library
+          ? `Skeletal (Toon + ${category} library retarget)`
+          : "Skeletal (Toon RTS, embedded clips)";
+        return instantiateToonRts(template, color, player.weapon, library);
       } catch {
         this.playerAnimMode = "Capsule (Toon RTS model load failed)";
         return instantiateCapsule(0x2d3550, 0xe6c8a0, color);
@@ -1940,7 +1966,9 @@ export class SaberGame {
       const key =
         rig === "meshy" || rig === "standout"
           ? `${rig}|${modelKey ?? "?"}|${category}`
-          : category;
+          : modelKey === "toonrts"
+            ? `toonrts|${category}`
+            : category;
       return getBip001Clips(template, sources, key);
     } catch (err) {
       console.warn("Grudge Gladiators: Bip001 retarget failed; using procedural animation.", err);
@@ -1975,12 +2003,16 @@ export class SaberGame {
         const category = weaponCategory(h.weapon);
         const color = this.colorHex(h.factionColor);
         if (h.rig === "toonrts") {
-          // Self-contained: embedded clips, no retarget bake needed.
           try {
             const toonTemplate = await loadToonRtsTemplate(h.modelUrl);
+            const clips = await this.ensureBip001Clips(
+              toonTemplate.scene,
+              category,
+              "toonrts",
+            );
             return {
               template: toonTemplate.scene,
-              clips: null,
+              clips,
               color,
               weapon: h.weapon,
               category,
@@ -2065,29 +2097,34 @@ export class SaberGame {
    * the flanker / bruiser / caster / archer variety. Best-effort per unit.
    */
   private async loadArchetypeDefs(): Promise<EnemyDef[]> {
-    const dir = `${import.meta.env.BASE_URL}models/toonrts`;
     const units: Array<{
-      file: string;
+      race: string;
       label: string;
       weapon: string;
       color: number;
       archetype: EnemyArchetype;
     }> = [
-      { file: "human_knight", label: "Vanguard Flanker", weapon: "sword shield", color: 0x64d9ff, archetype: "flanker" },
-      { file: "orc_warrior", label: "Orc Juggernaut", weapon: "greatsword", color: 0x8bd44a, archetype: "bruiser" },
-      { file: "undead_mage", label: "Lich Elementalist", weapon: "staff", color: 0xb26bff, archetype: "caster" },
-      { file: "barbarian_ranger", label: "Barbarian Archer", weapon: "bow", color: 0xffb347, archetype: "grunt" },
+      { race: "human", label: "Vanguard Flanker", weapon: "sword shield", color: 0x64d9ff, archetype: "flanker" },
+      { race: "orc", label: "Orc Juggernaut", weapon: "greatsword", color: 0x8bd44a, archetype: "bruiser" },
+      { race: "undead", label: "Lich Elementalist", weapon: "staff", color: 0xb26bff, archetype: "caster" },
+      { race: "barbarian", label: "Barbarian Archer", weapon: "bow", color: 0xffb347, archetype: "grunt" },
     ];
     const defs = await Promise.all(
       units.map(async (u): Promise<EnemyDef | null> => {
         try {
-          const toonTemplate = await loadToonRtsTemplate(`${dir}/${u.file}.glb`);
+          const category = weaponCategory(u.weapon);
+          const toonTemplate = await loadToonRtsTemplate(toonRaceKitUrl(u.race));
+          const clips = await this.ensureBip001Clips(
+            toonTemplate.scene,
+            category,
+            "toonrts",
+          );
           return {
             template: toonTemplate.scene,
-            clips: null,
+            clips,
             color: u.color,
             weapon: u.weapon,
-            category: weaponCategory(u.weapon),
+            category,
             rig: "toonrts",
             toonTemplate,
             label: u.label,
@@ -3061,7 +3098,7 @@ export class SaberGame {
     }
     let inst: CharacterInstance;
     if (def?.rig === "toonrts" && def.toonTemplate) {
-      inst = instantiateToonRts(def.toonTemplate, color, def.weapon);
+      inst = instantiateToonRts(def.toonTemplate, color, def.weapon, def.clips);
     } else if (def?.template && def.clips) {
       inst =
         def.rig === "meshy"
@@ -3143,7 +3180,7 @@ export class SaberGame {
     // Use the archetype's own accent unless overridden by a faction color (e.g.
     // Faction War squads tint the caster's health bar to their squad color).
     const accentColor = factionColor ?? def.color;
-    const inst = instantiateToonRts(def.toonTemplate, accentColor, def.weapon);
+    const inst = instantiateToonRts(def.toonTemplate, accentColor, def.weapon, def.clips);
     let hp = baseHp;
     let speed = 3.0 + this.wave * 0.3;
     const ranged = archetype === "caster" || def.category !== "blade";
@@ -3185,7 +3222,7 @@ export class SaberGame {
     let def: EnemyDef | null = null;
     if (useRanged && toonRangedDefs.length > 0) {
       def = toonRangedDefs[Math.floor(Math.random() * toonRangedDefs.length)];
-      inst = instantiateToonRts(def.toonTemplate!, def.color, def.weapon);
+      inst = instantiateToonRts(def.toonTemplate!, def.color, def.weapon, def.clips);
     } else if (useRanged && this.gunnerDef) {
       inst = instantiateHeavy(this.gunnerDef.template, this.gunnerDef.library, 0xffb347);
     } else {
@@ -3195,7 +3232,7 @@ export class SaberGame {
       const pool = meleeDefs.length > 0 ? meleeDefs : this.enemyDefs;
       def = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null;
       if (def?.rig === "toonrts" && def.toonTemplate) {
-        inst = instantiateToonRts(def.toonTemplate, def.color, def.weapon);
+        inst = instantiateToonRts(def.toonTemplate, def.color, def.weapon, def.clips);
       } else if (def?.template && def.clips) {
         inst =
           def.rig === "meshy"
@@ -3558,11 +3595,10 @@ export class SaberGame {
       // Keeping the hold past DRAW_HOLD_T starts a drawn slash (see updatePlayer).
       this.tryAttack(e.shiftKey);
     } else if (e.button === 1) {
-      // MMB drag: draw a defensive ribbon along the dragged path.
+      // MMB: hip-pistol quick-draw → tentacle hook at the crosshair → dash.
       e.preventDefault();
       this.middleDown = true;
-      this.drawTried = false;
-      if (this.mode !== "animtest") this.beginDraw("guard");
+      this.firePistolGrapple();
     } else if (e.button === 2) {
       this.rightDown = true;
       // Plain RMB toggles lock-on (focus the target under the crosshair).
@@ -3578,7 +3614,6 @@ export class SaberGame {
       if (this.drawMode === "slash") this.finishDraw();
     } else if (e.button === 1) {
       this.middleDown = false;
-      if (this.drawMode === "guard") this.finishDraw();
     } else if (e.button === 2) this.rightDown = false;
   };
 
@@ -5347,6 +5382,7 @@ export class SaberGame {
           this.simAccum -= STEP;
           this.stepPhysics();
           this.updatePlayer(STEP);
+          this.updateGrapple(STEP);
           this.updateCombat(STEP);
           this.updateEnemies(STEP);
           this.updateTimers(STEP);

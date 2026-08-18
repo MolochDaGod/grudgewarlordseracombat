@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { weaponCategory } from "./animations";
+import { stripPositionTracks, weaponCategory } from "./animations";
 import type { AnimationLibrary, ClipName } from "./animations";
 import type { Bip001Clips } from "./retarget";
 
@@ -13,6 +13,8 @@ import type { Bip001Clips } from "./retarget";
 // hide the rest and the kit weapons, then attach our own glowing saber.
 
 const TARGET_HEIGHT = 2.0;
+/** Fleet SI human. Used for Toon play kits — never unskinned mesh AABB. */
+const HUMAN_HEIGHT_M = 1.8;
 const loader = new GLTFLoader();
 const templateCache = new Map<string, Promise<THREE.Group>>();
 
@@ -239,6 +241,46 @@ const _facingTmp = new THREE.Vector3();
 // the automatic toe-vs-heel yaw detection. -PI/2 turns each model a quarter
 // circle to its right (user-requested default). Tunable.
 const MODEL_YAW_TRIM = -Math.PI / 2;
+
+/** Bone structural min/max Y (feet → head). Not mesh AABB, not pelvis. */
+function boneHeightSpan(scene: THREE.Object3D): { minY: number; maxY: number } | null {
+  scene.updateMatrixWorld(true);
+  let minY = Infinity;
+  let maxY = -Infinity;
+  scene.traverse((o) => {
+    const b = o as THREE.Bone;
+    if (!b.isBone) return;
+    const p = b.getWorldPosition(new THREE.Vector3());
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  });
+  if (!Number.isFinite(minY) || maxY - minY < 0.2) return null;
+  return { minY, maxY };
+}
+
+/**
+ * Toon RTS play GLB: authored +Z, yaw 0. Fit ~1.8 m from bone span and ground
+ * feet from bone min.y. Do not apply FBX +X MODEL_YAW_TRIM.
+ */
+function fitToonPlayKit(scene: THREE.Object3D): void {
+  scene.updateMatrixWorld(true);
+  const span = boneHeightSpan(scene);
+  if (span) {
+    scene.scale.multiplyScalar(HUMAN_HEIGHT_M / (span.maxY - span.minY));
+    scene.updateMatrixWorld(true);
+  }
+  const span2 = boneHeightSpan(scene);
+  const feet = feetCenterWorld(scene);
+  if (feet) {
+    scene.position.x -= feet.x;
+    scene.position.z -= feet.z;
+  }
+  if (span2) scene.position.y -= span2.minY;
+  else {
+    const box = new THREE.Box3().setFromObject(scene);
+    scene.position.y -= box.min.y;
+  }
+}
 
 function normalize(scene: THREE.Object3D): void {
   // Face the game's +Z before measuring: recentering uses world positions, so
@@ -487,7 +529,7 @@ const ONE_SHOT: ReadonlySet<ClipName> = new Set([
 /** Build the mixer + per-clip actions for a model, looping all but one-shots. */
 function setupMixer(
   root: THREE.Object3D,
-  clips: Record<ClipName, THREE.AnimationClip>,
+  clips: Partial<Record<ClipName, THREE.AnimationClip>>,
 ): {
   mixer: THREE.AnimationMixer;
   actions: Partial<Record<ClipName, THREE.AnimationAction>>;
@@ -495,7 +537,9 @@ function setupMixer(
   const mixer = new THREE.AnimationMixer(root);
   const actions: Partial<Record<ClipName, THREE.AnimationAction>> = {};
   (Object.keys(clips) as ClipName[]).forEach((name) => {
-    const action = mixer.clipAction(clips[name]);
+    const clip = clips[name];
+    if (!clip) return;
+    const action = mixer.clipAction(clip);
     if (ONE_SHOT.has(name)) {
       action.setLoop(THREE.LoopOnce, 1);
       action.clampWhenFinished = true;
@@ -743,12 +787,26 @@ function mapToonRtsClips(
     for (const want of candidates) {
       const clip = animations.find((a) => a.name === want);
       if (clip) {
-        clips[name] = clip;
+        clips[name] = stripPositionTracks(clip);
         break;
       }
     }
   }
   return clips;
+}
+
+/** Library (retargeted Mixamo pack) wins; embedded Toon clips fill holes. */
+function mergeToonLibraryClips(
+  embedded: Partial<Record<ClipName, THREE.AnimationClip>>,
+  library: Partial<Bip001Clips> | null | undefined,
+): Partial<Record<ClipName, THREE.AnimationClip>> {
+  const out: Partial<Record<ClipName, THREE.AnimationClip>> = { ...embedded };
+  if (!library) return out;
+  (Object.keys(library) as ClipName[]).forEach((name) => {
+    const clip = library[name];
+    if (clip) out[name] = clip;
+  });
+  return out;
 }
 
 /**
@@ -760,6 +818,7 @@ export function instantiateToonRts(
   template: ToonRtsTemplate,
   accent: number,
   weapon = "greatsword",
+  library?: Partial<Bip001Clips> | null,
 ): CharacterInstance {
   const scene = cloneSkeleton(template.scene);
   // CDN race kits are full customizable packs. pruneKit keeps one mesh per
@@ -775,13 +834,13 @@ export function instantiateToonRts(
       }
     });
   }
-  normalize(scene);
+  fitToonPlayKit(scene);
   const inst = buildInstance(scene, accent, true, "bip001", false);
-  const clips = mapToonRtsClips(template.animations, weapon);
-  const { mixer, actions } = setupMixer(
-    scene,
-    clips as Record<ClipName, THREE.AnimationClip>,
+  const clips = mergeToonLibraryClips(
+    mapToonRtsClips(template.animations, weapon),
+    library,
   );
+  const { mixer, actions } = setupMixer(scene, clips);
   inst.mixer = mixer;
   inst.actions = actions;
   actions.idle?.play();
