@@ -439,6 +439,8 @@ export interface AnimState {
    * "quick" instead of drifting out of sync with the gameplay hit timing.
    */
   strikeDur?: number;
+  /** Light-combo / heavy overlay (attack / attack2 / attack3). */
+  strikeClip?: ClipName;
   /**
    * -1 = not casting, else 0..1 progress through an elemental cast wind-up +
    * release. Drives the dedicated "cast" clip (magic 2H attack) as a one-shot,
@@ -538,6 +540,8 @@ const BIP_GRIP_ADJUST = new THREE.Quaternion();
 
 const ONE_SHOT: ReadonlySet<ClipName> = new Set([
   "attack",
+  "attack2",
+  "attack3",
   "cast",
   "jump",
   "hit",
@@ -749,51 +753,115 @@ export function loadToonRtsTemplate(url: string): Promise<ToonRtsTemplate> {
   return p;
 }
 
-// Game clip -> embedded clip names, first match wins, chosen per weapon class:
-// warriors prefer the two-handed greatsword ("gs_") stance set, knights use the
-// one-handed sword+shield set, and rangers/mages use the plain locomotion with
-// their own class attack ("attack" is the bow shot / spell cast on those rigs).
+// Game clip -> embedded Toon clip names (Character-Animator ATTACK_COMBO_*).
+// First match wins. Warriors prefer gs_ locomotion; knights 1H+shield; spear /
+// axe pick heavier combo starts; bow/staff bind bow_shot / magic_cast.
 function toonRtsClipMap(weapon: string): ReadonlyArray<[ClipName, string[]]> {
   const w = weapon.toLowerCase();
   const category = weaponCategory(weapon);
-  const greatsword = category === "blade" && /great\s*sword|greatsword/.test(w);
-  if (greatsword) {
+  const twoHand =
+    category === "blade" &&
+    /great\s*sword|greatsword|great\s*axe|greataxe|hammer/.test(w);
+  const spear = category === "blade" && /spear|lance/.test(w);
+  const axe = category === "blade" && /\baxe\b|mace/.test(w);
+  const loco: Array<[ClipName, string[]]> = twoHand
+    ? [
+        ["idle", ["gs_idle", "idle"]],
+        ["walk", ["gs_walk", "walk"]],
+        ["run", ["gs_run", "run"]],
+      ]
+    : category === "bow"
+      ? [
+          ["idle", ["idle"]],
+          ["walk", ["bow_walk_fwd", "walk"]],
+          ["run", ["run"]],
+        ]
+      : category === "magic"
+        ? [
+            ["idle", ["magic_idle", "idle"]],
+            ["walk", ["magic_walk_fwd", "walk"]],
+            ["run", ["magic_run", "run"]],
+          ]
+        : [
+            ["idle", ["idle"]],
+            ["walk", ["walk"]],
+            ["run", ["run"]],
+          ];
+  const shared: Array<[ClipName, string[]]> = [
+    ...loco,
+    ["strafeLeft", ["strafe_left"]],
+    ["strafeRight", ["strafe_right"]],
+    ["jump", ["jump"]],
+  ];
+  if (twoHand) {
     return [
-      ["idle", ["gs_idle", "idle"]],
-      ["walk", ["gs_walk", "walk"]],
-      ["run", ["gs_run", "run"]],
-      ["strafeLeft", ["strafe_left"]],
-      ["strafeRight", ["strafe_right"]],
-      ["jump", ["jump"]],
-      ["attack", ["sword_attack_a", "attack"]],
+      ...shared,
+      ["attack", ["sword_attack_c", "gs_attack", "sword_attack_a", "attack"]],
+      ["attack2", ["sword_combo_finisher", "sword_dash_attack", "sword_attack_a"]],
+      ["attack3", ["sword_dash_attack", "run_jump_attack", "sword_attack_c"]],
+      ["guard", ["sword_block"]],
+    ];
+  }
+  if (spear) {
+    return [
+      ...shared,
+      ["attack", ["sword_dash_attack", "sword_attack_a", "attack"]],
+      ["attack2", ["sword_attack_c", "sword_attack_a"]],
+      ["attack3", ["sword_combo_finisher", "run_jump_attack", "sword_attack_c"]],
+      ["guard", ["sword_block"]],
+    ];
+  }
+  if (axe) {
+    return [
+      ...shared,
+      ["attack", ["sword_attack_c", "sword_attack_a", "attack"]],
+      ["attack2", ["sword_dash_attack", "sword_attack_a"]],
+      ["attack3", ["sword_combo_finisher", "run_jump_attack", "sword_attack_c"]],
       ["guard", ["sword_block"]],
     ];
   }
   if (category === "blade") {
-    // Sword & shield: plain locomotion carries the shield naturally.
     return [
-      ["idle", ["idle"]],
-      ["walk", ["walk"]],
-      ["run", ["run"]],
-      ["strafeLeft", ["strafe_left"]],
-      ["strafeRight", ["strafe_right"]],
-      ["jump", ["jump"]],
+      ...shared,
       ["attack", ["sword_attack_a", "attack"]],
+      ["attack2", ["sword_attack_c", "sword_dash_attack", "sword_attack_a"]],
+      ["attack3", ["sword_combo_finisher", "sword_dash_attack", "sword_attack_c"]],
       ["guard", ["sword_block"]],
     ];
   }
-  // Bow / magic: "attack" is the class attack (bow shot, spell cast). These
-  // rigs have no block clip; missing guard is safe (crossfade guards absent
-  // actions).
+  if (category === "bow") {
+    return [
+      ...shared,
+      ["attack", ["bow_shot", "attack"]],
+      ["attack2", ["bow_shot", "attack"]],
+      ["attack3", ["bow_shot", "attack"]],
+      ["cast", ["bow_shot", "attack"]],
+    ];
+  }
   return [
-    ["idle", ["idle"]],
-    ["walk", [category === "bow" ? "bow_walk_fwd" : "magic_walk_fwd", "walk"]],
-    ["run", ["run"]],
-    ["strafeLeft", ["strafe_left"]],
-    ["strafeRight", ["strafe_right"]],
-    ["jump", ["jump"]],
-    ["attack", ["attack"]],
+    ...shared,
+    ["attack", ["magic_cast", "attack"]],
+    ["attack2", ["magic_cast_2h", "magic_cast", "attack"]],
+    ["attack3", ["magic_cast_2h", "run_jump_attack", "magic_cast", "attack"]],
+    ["cast", ["magic_cast", "magic_cast_2h", "attack"]],
   ];
+}
+
+function findToonClip(
+  animations: THREE.AnimationClip[],
+  want: string,
+): THREE.AnimationClip | undefined {
+  const exact = animations.find((a) => a.name === want);
+  if (exact) return exact;
+  const n = want.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  if (!n) return undefined;
+  const eq = animations.find(
+    (a) => a.name.replace(/[^a-z0-9]/gi, "").toLowerCase() === n,
+  );
+  if (eq) return eq;
+  return animations.find((a) =>
+    a.name.replace(/[^a-z0-9]/gi, "").toLowerCase().includes(n),
+  );
 }
 
 function mapToonRtsClips(
@@ -803,7 +871,7 @@ function mapToonRtsClips(
   const clips: Partial<Record<ClipName, THREE.AnimationClip>> = {};
   for (const [name, candidates] of toonRtsClipMap(weapon)) {
     for (const want of candidates) {
-      const clip = animations.find((a) => a.name === want);
+      const clip = findToonClip(animations, want);
       if (clip) {
         clips[name] = stripPositionTracks(clip);
         break;
@@ -1394,7 +1462,7 @@ const READY_Z = -0.15;
 
 function pickClip(s: AnimState): ClipName {
   if (s.cast01 !== undefined && s.cast01 >= 0) return "cast";
-  if (s.strike01 >= 0) return "attack";
+  if (s.strike01 >= 0) return s.strikeClip ?? "attack";
   if (!s.grounded || s.airborne01 > 0.15) return "jump";
   if (s.guard) return "guard";
   if (s.speed01 > 0.55) return "run";
@@ -1603,13 +1671,14 @@ function updateMixamo(inst: CharacterInstance, dt: number, s: AnimState): void {
   const desired = pickClip(s);
   const strikeActive = s.strike01 >= 0;
   const castActive = s.cast01 !== undefined && s.cast01 >= 0;
+  const strikeName: ClipName = s.strikeClip ?? "attack";
   // Restart the cast clip on each new cast (reference cast->release pattern:
   // one one-shot spanning wind-up plus release, time-scaled to the window).
   if (desired === "cast" && castActive && !inst.prevCast) {
     queueOneShot(inst, "cast");
     exitLocoBlend(inst);
-    const cast = inst.actions?.cast;
-    if (cast && inst.overlayClip === "cast") {
+    const cast = inst.actions?.cast ?? inst.actions?.attack;
+    if (cast && (inst.overlayClip === "cast" || inst.overlayClip === "attack")) {
       cast.reset();
       cast.enabled = true;
       cast.setEffectiveWeight(1);
@@ -1617,17 +1686,23 @@ function updateMixamo(inst: CharacterInstance, dt: number, s: AnimState): void {
       cast.play();
       inst.currentClip = "cast";
     }
-  } else if (desired === "attack" && strikeActive && !inst.prevStrike) {
-    queueOneShot(inst, "attack");
+  } else if (
+    strikeActive &&
+    (!inst.prevStrike || inst.overlayClip !== strikeName)
+  ) {
+    inst.animQueue = [];
+    inst.overlayClip = null;
+    queueOneShot(inst, strikeName);
     exitLocoBlend(inst);
-    const atk = inst.actions?.attack;
-    if (atk && inst.overlayClip === "attack") {
+    const atk = inst.actions?.[strikeName] ?? inst.actions?.attack;
+    if (atk) {
       atk.reset();
       atk.enabled = true;
       atk.setEffectiveWeight(1);
       atk.setEffectiveTimeScale(attackTimeScale(atk, s.strikeDur));
       atk.play();
-      inst.currentClip = "attack";
+      inst.overlayClip = strikeName;
+      inst.currentClip = strikeName;
     }
   } else if (
     inst.overlayClip &&

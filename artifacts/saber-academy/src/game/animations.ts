@@ -26,6 +26,8 @@ export type ClipName =
   | "strafeRight"
   | "jump"
   | "attack"
+  | "attack2"
+  | "attack3"
   | "cast"
   | "guard"
   | "hit"
@@ -43,6 +45,60 @@ export function weaponCategory(weapon: string): WeaponCategory {
   return "blade";
 }
 
+/** GRUDGE6 combat profile (skill grudge6-combat-runtime / attack-ranges.md). */
+export type WeaponCombatStyle = "melee" | "ranged" | "magic";
+
+export interface WeaponCombatProfile {
+  style: WeaponCombatStyle;
+  range: number;
+  arcDeg: number;
+  windup: number;
+  active: number;
+  recovery: number;
+  cd: number;
+  projectileSpeed?: number;
+}
+
+export const GRUDGE6_WEAPON_COMBAT: Record<string, WeaponCombatProfile> = {
+  sword:        { style: "melee",  range: 2.5, arcDeg: 90,  windup: 0.22, active: 0.28, recovery: 0.35, cd: 0.45 },
+  sword_shield: { style: "melee",  range: 2.4, arcDeg: 80,  windup: 0.20, active: 0.26, recovery: 0.32, cd: 0.50 },
+  axe:          { style: "melee",  range: 2.8, arcDeg: 110, windup: 0.28, active: 0.30, recovery: 0.40, cd: 0.55 },
+  hammer:       { style: "melee",  range: 2.7, arcDeg: 100, windup: 0.30, active: 0.32, recovery: 0.45, cd: 0.60 },
+  greataxe:     { style: "melee",  range: 3.2, arcDeg: 120, windup: 0.35, active: 0.35, recovery: 0.50, cd: 0.70 },
+  spear:        { style: "melee",  range: 3.6, arcDeg: 40,  windup: 0.18, active: 0.22, recovery: 0.30, cd: 0.48 },
+  dagger:       { style: "melee",  range: 1.9, arcDeg: 70,  windup: 0.12, active: 0.18, recovery: 0.22, cd: 0.32 },
+  unarmed:      { style: "melee",  range: 2.0, arcDeg: 80,  windup: 0.14, active: 0.20, recovery: 0.25, cd: 0.35 },
+  bow:          { style: "ranged", range: 24,  windup: 0.35, active: 0.05, recovery: 0.40, cd: 0.55, projectileSpeed: 42, arcDeg: 0 },
+  crossbow:     { style: "ranged", range: 28,  windup: 0.45, active: 0.05, recovery: 0.55, cd: 0.85, projectileSpeed: 55, arcDeg: 0 },
+  staff:        { style: "magic",  range: 18,  windup: 0.40, active: 0.08, recovery: 0.45, cd: 0.70, projectileSpeed: 28, arcDeg: 0 },
+  wand:         { style: "magic",  range: 16,  windup: 0.25, active: 0.06, recovery: 0.30, cd: 0.50, projectileSpeed: 32, arcDeg: 0 },
+  tome:         { style: "magic",  range: 15,  windup: 0.50, active: 0.10, recovery: 0.55, cd: 0.90, projectileSpeed: 24, arcDeg: 0 },
+};
+
+/** Resolve a roster weapon string to a GRUDGE6 combat profile key. */
+export function weaponCombatKey(weapon: string): string {
+  const w = weapon.toLowerCase();
+  if (/great\s*axe|greataxe/.test(w)) return "greataxe";
+  if (/great\s*sword|greatsword/.test(w)) return "greataxe";
+  if (/sword.*shield|shield/.test(w)) return "sword_shield";
+  if (/spear|lance/.test(w)) return "spear";
+  if (/dagger|knife/.test(w)) return "dagger";
+  if (/hammer/.test(w)) return "hammer";
+  if (/\baxe\b/.test(w)) return "axe";
+  if (/crossbow/.test(w)) return "crossbow";
+  if (/bow/.test(w)) return "bow";
+  if (/wand/.test(w)) return "wand";
+  if (/tome/.test(w)) return "tome";
+  if (/staff|scepter|rod|orb/.test(w)) return "staff";
+  if (/unarmed|fist|claw/.test(w)) return "unarmed";
+  if (/sword|saber|blade|mace/.test(w)) return "sword";
+  return "sword";
+}
+
+export function weaponCombatProfile(weapon: string): WeaponCombatProfile {
+  return GRUDGE6_WEAPON_COMBAT[weaponCombatKey(weapon)] ?? GRUDGE6_WEAPON_COMBAT.sword;
+}
+
 // Per-category clip sets, mapped to gameplay states. Paths are relative to BASE.
 const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
   blade: {
@@ -53,6 +109,8 @@ const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
     strafeRight: "locomotion/right_strafe.fbx",
     jump: "sword_shield/sword_and_shield_jump.fbx",
     attack: "sword_shield/sword_and_shield_slash.fbx",
+    attack2: "sword_shield/sword_and_shield_slash.fbx",
+    attack3: "sword_shield/sword_and_shield_slash.fbx",
     cast: "magic/Standing_2H_Magic_Attack_01.fbx",
     guard: "sword_shield/sword_and_shield_block_idle.fbx",
     hit: "sword_shield/sword_and_shield_impact.fbx",
@@ -66,6 +124,8 @@ const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
     strafeRight: "locomotion/right_strafe.fbx",
     jump: "locomotion/jump.fbx",
     attack: "magic/Standing_2H_Magic_Attack_01.fbx",
+    attack2: "magic/Standing_2H_Magic_Attack_01.fbx",
+    attack3: "magic/Standing_2H_Magic_Attack_01.fbx",
     cast: "magic/Standing_2H_Magic_Attack_01.fbx",
     guard: "magic/Standing_Block_Idle.fbx",
     hit: "magic/Standing_React_Small_From_Front.fbx",
@@ -79,7 +139,9 @@ const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
     strafeRight: "longbow/standing_run_right.fbx",
     jump: "locomotion/jump.fbx",
     attack: "longbow/standing_draw_arrow.fbx",
-    cast: "magic/Standing_2H_Magic_Attack_01.fbx",
+    attack2: "longbow/standing_draw_arrow.fbx",
+    attack3: "longbow/standing_draw_arrow.fbx",
+    cast: "longbow/standing_draw_arrow.fbx",
     guard: "longbow/standing_block.fbx",
     hit: "longbow/standing_react_small_from_front.fbx",
     death: "longbow/standing_death_forward_01.fbx",
@@ -206,8 +268,10 @@ export function loadAnimationSources(
       return Promise.all(
         names.map(async (name): Promise<RawClip> => {
           const { group, clip } = await loadFbxRaw(set[name]);
-          clip.name = name;
-          return { name, object: group, clip };
+          // Clone so shared FBX (combo steps on one slash) keep their own name.
+          const tagged = clip.clone();
+          tagged.name = name;
+          return { name, object: group, clip: tagged };
         }),
       );
     })().catch((err) => {

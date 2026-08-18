@@ -235,6 +235,8 @@ export const CLIP_NAMES: ClipName[] = [
   "strafeRight",
   "jump",
   "attack",
+  "attack2",
+  "attack3",
   "cast",
   "guard",
   "hit",

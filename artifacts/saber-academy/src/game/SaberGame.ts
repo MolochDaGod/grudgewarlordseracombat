@@ -37,6 +37,7 @@ import {
   loadAnimationSources,
   loadClip,
   weaponCategory,
+  weaponCombatProfile,
   type AnimationLibrary,
   type ClipName,
   type RawClip,
@@ -161,7 +162,11 @@ function animStateForClip(clip: ClipName): AnimState {
     case "jump":
       return { ...base, grounded: false, airborne01: 0.5 };
     case "attack":
-      return { ...base, strike01: 0.5 };
+    case "attack2":
+    case "attack3":
+      return { ...base, strike01: 0.5, strikeClip: clip };
+    case "cast":
+      return { ...base, cast01: 0.4, castDur: 1.2 };
     case "guard":
       return { ...base, guard: true };
     case "hit":
@@ -591,7 +596,6 @@ const GRAPPLE_SHOOT = 0.12;
 const DASH_WINDOW = 0.28;
 const DODGE_IFRAMES = 0.34;
 const PARRY_WINDOW = 0.26;
-const HEAVY_DUR = ATTACK_DUR * 1.55;
 const COMBO_CHAIN_WINDOW = 0.55;
 const COMBO_CANCEL = 0.18;
 const STUN_TIME = 2.0;
@@ -889,6 +893,23 @@ export class SaberGame {
 
   /** Player weapon category: drives LMB behavior (melee / bow / staff). */
   private playerCategory: WeaponCategory = "blade";
+
+  /** Roster weapon string — GRUDGE6 profile + Toon clip map. */
+  private playerWeapon = "sword";
+
+  /** Light-combo overlay clip for the current swing. */
+  private strikeClip: ClipName = "attack";
+
+  /** GRUDGE6 windup / active window for the current melee swing. */
+  private meleeWindup = 0.22;
+
+  private meleeActive = 0.28;
+
+  /** Bow / staff LMB charge length (HUD + fire). */
+  private rangedChargeDur = 0;
+
+  /** Pending projectile released when the charge / draw timer ends. */
+  private pendingShot: "arrow" | "orb" | null = null;
 
   /** Mage LMB: remaining cast time; > 0 means an arcane bolt is charging. */
   private arcaneCharge = 0;
@@ -1900,6 +1921,7 @@ export class SaberGame {
     const color = this.colorHex(player.factionColor);
     const category = weaponCategory(player.weapon);
     this.playerCategory = category;
+    this.playerWeapon = player.weapon;
     if (player.rig === "mixamo") {
       try {
         const base = import.meta.env.BASE_URL;
@@ -3963,34 +3985,48 @@ export class SaberGame {
     m.position.set(p.x, p.y + 3.1, p.z);
   }
 
-  /** Bow LMB: draw-and-loose animation, arrow released at the loose point. */
+  /** Bow LMB: draw clip scaled to the GRUDGE6 / catalog draw timer, then loose. */
   private startBowShot(): void {
-    if (this.attackTimer > 0 || this.arcaneCharge > 0) return;
+    if (this.attackTimer > 0 || this.arcaneCharge > 0 || this.pendingCasts.length) {
+      return;
+    }
     this.facing = this.castAimYaw();
-    this.attackDur = ATTACK_DUR;
-    this.attackTimer = this.attackDur;
-    this.attackActive = false; // no melee sweep; damage rides the arrow
+    const profile = weaponCombatProfile(this.playerWeapon);
+    const arrow = rangedShot("arrow") as ArrowShotParams;
+    const drawT = Math.max(
+      profile.windup + profile.active,
+      (arrow.releaseMs || RANGED_RELEASE_MS) / 1000,
+    );
+    this.pendingShot = "arrow";
+    this.rangedChargeDur = drawT;
+    this.castAnimDur = drawT;
+    this.castAnimT = drawT;
+    this.attackDur = drawT;
+    this.attackTimer = drawT;
+    this.attackActive = false;
     this.attackHeavy = false;
     this.attackAir = false;
     this.lungeRemain = 0;
     this.swingId++;
-    const arrow = rangedShot("arrow") as ArrowShotParams;
-    this.schedule(() => {
-      if (this.disposed || this.phase !== "playing") return;
-      this.firePlayerShot("arrow");
-    }, arrow.releaseMs);
   }
 
-  /** Staff LMB: 1.5s arcane cast (HUD cast bar), then a magic orb flies. */
+  /** Staff LMB: HUD cast bar + magic_cast clip scaled to catalog / GRUDGE6 time. */
   private startArcaneCast(): void {
-    if (this.attackTimer > 0 || this.arcaneCharge > 0) return;
+    if (this.attackTimer > 0 || this.arcaneCharge > 0 || this.pendingCasts.length) {
+      return;
+    }
     this.facing = this.castAimYaw();
-    const castT = (rangedShot("orb") as OrbShotParams).castT;
+    const profile = weaponCombatProfile(this.playerWeapon);
+    const orb = rangedShot("orb") as OrbShotParams;
+    const fallback = profile.windup + profile.active + profile.recovery;
+    const castT = orb.castT > 0 ? orb.castT : fallback;
+    this.pendingShot = "orb";
     this.arcaneCharge = castT;
-    // Stretch the cast animation across the whole charge so the loose lines
-    // up with the orb's release (same per-clip timeScale trick as skills).
-    this.attackDur = castT;
-    this.attackTimer = castT;
+    this.rangedChargeDur = castT;
+    this.castAnimDur = castT;
+    this.castAnimT = castT;
+    this.attackDur = 0;
+    this.attackTimer = 0;
     this.attackActive = false;
     this.attackHeavy = false;
     this.attackAir = false;
@@ -4100,7 +4136,15 @@ export class SaberGame {
     this.comboChainTimer = 0;
     this.attackHeavy = heavy;
     this.attackAir = airborne;
-    this.attackDur = heavy ? HEAVY_DUR : ATTACK_DUR;
+    const profile = weaponCombatProfile(this.playerWeapon);
+    this.meleeWindup = profile.windup * (heavy ? 1.15 : 1);
+    this.meleeActive = profile.active * (heavy ? 1.1 : 1);
+    const recover = profile.recovery * (heavy || airborne ? 1.4 : 1);
+    this.attackDur = this.meleeWindup + this.meleeActive + recover;
+    this.strikeClip =
+      heavy || airborne
+        ? "attack3"
+        : ((["attack", "attack2", "attack3"] as const)[this.comboStep] ?? "attack");
     // IK-ready stance: with the weapon hand already presented (RMB held or a
     // locked focus), strikes start from optimal placement and land snappier.
     if (this.rightDown || (this.targetEnemy && this.targetEnemy.alive)) {
@@ -4117,9 +4161,8 @@ export class SaberGame {
 
   private resolveAttack(): void {
     const heavy = this.attackHeavy;
-    // Longer reach so strikes connect from a more natural distance and the blade
-    // point clearly leads the swing.
-    const reach = heavy ? 4.8 : 4.0;
+    const profile = weaponCombatProfile(this.playerWeapon);
+    const reach = (heavy ? profile.range * 1.15 : profile.range) + 0.35;
     // Sweep the blade across a short arc over the active window; alternate the
     // arc direction per chain step so a combo reads as distinct strikes.
     const progress = 1 - this.attackTimer / this.attackDur;
@@ -6148,17 +6191,26 @@ export class SaberGame {
       this.arcaneCharge -= dt;
       if (this.arcaneCharge <= 0) {
         this.arcaneCharge = 0;
+        this.pendingShot = null;
         if (this.phase === "playing") this.firePlayerShot("orb");
       }
     }
     if (this.attackTimer > 0) {
       this.attackTimer -= dt;
-      const mid = this.attackDur * 0.55;
-      if (this.attackActive && this.attackTimer < mid && this.attackTimer > mid - 0.22) {
+      const elapsed = this.attackDur - this.attackTimer;
+      if (
+        this.attackActive &&
+        elapsed >= this.meleeWindup &&
+        elapsed <= this.meleeWindup + this.meleeActive
+      ) {
         this.resolveAttack();
       }
       if (this.attackTimer <= 0) {
         this.attackActive = false;
+        if (this.pendingShot === "arrow") {
+          this.pendingShot = null;
+          if (this.phase === "playing") this.firePlayerShot("arrow");
+        }
         // Open the chain-continue window and fire any buffered next strike.
         this.comboChainTimer = COMBO_CHAIN_WINDOW;
         if (this.bufferedAttack) {
@@ -6645,8 +6697,9 @@ export class SaberGame {
       strafe,
       grounded: this.grounded,
       airborne01: THREE.MathUtils.clamp(this.player.position.y / 2.5, 0, 1),
-      strike01: this.attackTimer > 0 ? 1 - this.attackTimer / this.attackDur : -1,
+      strike01: this.attackTimer > 0 && this.attackActive ? 1 - this.attackTimer / this.attackDur : -1,
       strikeDur: this.attackDur,
+      strikeClip: this.strikeClip,
       cast01: this.castAnimT > 0 ? 1 - this.castAnimT / this.castAnimDur : -1,
       castDur: this.castAnimDur,
       guard: this.blocking,
@@ -6681,7 +6734,13 @@ export class SaberGame {
     this.forcedClip = clip;
     // A held forced "attack" keeps strike01 active, so updateMixamo won't restart
     // the swing on a re-click; clear prevStrike to retrigger it each press.
-    if (clip === "attack" && this.playerInst) this.playerInst.prevStrike = false;
+    if (
+      (clip === "attack" || clip === "attack2" || clip === "attack3") &&
+      this.playerInst
+    ) {
+      this.playerInst.prevStrike = false;
+    }
+    if (clip === "cast" && this.playerInst) this.playerInst.prevCast = false;
     this.emit();
   }
 
@@ -6927,6 +6986,10 @@ export class SaberGame {
     this.enemyCastSystems.clear();
     this.castAimLine?.hide();
     this.castAnimT = 0;
+    this.arcaneCharge = 0;
+    this.pendingShot = null;
+    this.rangedChargeDur = 0;
+    this.strikeClip = "attack";
     this.telegraphs?.clear();
     for (const p of this.pendingCasts) this.disposeCastAura(p.aura);
     this.pendingCasts = [];
@@ -7057,10 +7120,26 @@ export class SaberGame {
       })(),
       castBar: (() => {
         if (this.arcaneCharge > 0) {
+          const dur = this.rangedChargeDur || this.castAnimDur || ARCANE_CAST_T;
           return {
             name: "Arcane Bolt",
-            t01: 1 - this.arcaneCharge / ARCANE_CAST_T,
+            t01: THREE.MathUtils.clamp(1 - this.arcaneCharge / dur, 0, 1),
             color: "#7fd0ff",
+          };
+        }
+        if (
+          this.playerCategory === "bow" &&
+          this.castAnimT > 0 &&
+          this.pendingCasts.length === 0
+        ) {
+          return {
+            name: "Draw",
+            t01: THREE.MathUtils.clamp(
+              1 - this.castAnimT / Math.max(this.castAnimDur, 0.01),
+              0,
+              1,
+            ),
+            color: "#e8c36a",
           };
         }
         const p = this.pendingCasts[this.pendingCasts.length - 1];
