@@ -24,6 +24,17 @@ export interface WarlordsLoadout {
   legs: string;
   head: string;
   shoulders: string;
+  /** Warlords prefab slug (sir-aldric-valorheart, …). */
+  prefabId?: string;
+  /** Offhand: shield / tome / none. */
+  offhand?: string;
+  /**
+   * Exact kit mesh names (gear_presets.visibleMeshes). When set, these win
+   * over the letter slots so each hero can have a unique paperdoll.
+   */
+  meshIds?: string[];
+  /** Toon class-GLB clip donor under public/models/toon-clips/<id>.glb */
+  clipDonor?: string;
 }
 
 export const RACE_PREFIX: Record<LoadoutRace, string> = {
@@ -96,6 +107,62 @@ export const WARLORDS_TEST_LOADOUTS: WarlordsLoadout[] = (
   ];
 });
 
+/**
+ * Character 1 — Sir Aldric Valorheart (Crusade human knight).
+ * Mesh list: animator gearPresets knight. Loadout: SWORD + SHIELD, sword_shield.
+ */
+export const SIR_ALDRIC_MESH_IDS = [
+  "WK_Units_head_F",
+  "WK_Units_Body_E",
+  "WK_Units_Arms_D",
+  "WK_Units_Legs_C",
+  "WK_Units_shoulderpads_B",
+  "WK_weapon_sword_B",
+  "WK_Shield_B",
+] as const;
+
+export const SIR_ALDRIC_LOADOUT: WarlordsLoadout = {
+  id: "human-knight",
+  prefabId: "sir-aldric-valorheart",
+  label: "Sir Aldric Valorheart",
+  race: "human",
+  weapon: "sword and shield",
+  offhand: "shield",
+  body: "E",
+  arms: "D",
+  legs: "C",
+  head: "F",
+  shoulders: "B",
+  meshIds: [...SIR_ALDRIC_MESH_IDS],
+  clipDonor: "wk-knight",
+};
+
+function meshKey(name: string): string {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/^wk_|^brb_|^orc_|^elf_|^ud_|^dwf_/, "")
+    .replace(/units_/g, "")
+    .replace(/xtra_/g, "")
+    .replace(/weapon_/g, "weapon")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function applyMeshIds(root: THREE.Object3D, meshIds: string[]): void {
+  const want = new Set(meshIds.map(meshKey));
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    const n = o.name;
+    if (!/body|arm|leg|head|shoulder|weapon|shield|quiver|bag|wood|xtra/i.test(n)) {
+      return;
+    }
+    const k = meshKey(n);
+    o.visible = want.has(k) || [...want].some((w) => k.endsWith(w) || w.endsWith(k));
+  });
+}
+
 function slotLetter(name: string, slot: string): string | null {
   const m = name.match(new RegExp(`${slot}[_\\s-]*([a-i])\\b`, "i"));
   return m ? m[1].toUpperCase() : null;
@@ -108,6 +175,11 @@ export function applyWarlordsLoadout(
   root: THREE.Object3D,
   loadout: WarlordsLoadout,
 ): void {
+  if (loadout.meshIds?.length) {
+    applyMeshIds(root, loadout.meshIds);
+    root.userData.warlordsLoadout = loadout;
+    return;
+  }
   const wantWeapon = /bow/i.test(loadout.weapon)
     ? "bow"
     : /staff|wand/i.test(loadout.weapon)

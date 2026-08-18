@@ -15,6 +15,7 @@ import {
   applyWarlordsLoadout,
   type WarlordsLoadout,
 } from "./warlordsLoadout";
+import { bakeKit, stampKitBake, type KitBake } from "./kitBake";
 
 // Real character models live in Cloudflare R2 (public) and are referenced by the
 // /api/saber/roster endpoint (data from Cloudflare D1). They use a 3ds Max Biped
@@ -422,6 +423,8 @@ export interface CharacterInstance {
   footBones?: THREE.Bone[];
   /** Terrain height sampler (same field as body ground). */
   terrainAt?: (x: number, z: number) => number;
+  /** Baked skeleton / mesh / SI size / bone names (live AI debugger). */
+  kitBake?: KitBake;
 }
 
 export interface AnimState {
@@ -431,6 +434,8 @@ export interface AnimState {
   airborne01: number; // 0..1 jump height factor
   strike01: number; // -1 = none, else 0..1 swing progress
   guard: boolean;
+  /** Dash / dodge window — plays dodge or sword_dash_attack. */
+  dashing?: boolean;
   hitFlash: number;
   /** Same terrain sampler as the body (never a second height field). */
   groundAt?: (x: number, z: number) => number;
@@ -472,6 +477,9 @@ function buildInstance(
     weapon = makeBlade();
     group.add(weapon.pivot);
   }
+  inner.updateMatrixWorld(true);
+  const kit = bakeKit(inner, rig);
+  stampKitBake(inner, kit);
   return {
     group,
     inner,
@@ -480,6 +488,7 @@ function buildInstance(
     isModel,
     phase: Math.random() * Math.PI * 2,
     rig,
+    kitBake: kit,
   };
 }
 
@@ -545,6 +554,7 @@ const ONE_SHOT: ReadonlySet<ClipName> = new Set([
   "attack3",
   "cast",
   "jump",
+  "dodge",
   "hit",
   "death",
 ]);
@@ -792,7 +802,8 @@ function toonRtsClipMap(weapon: string): ReadonlyArray<[ClipName, string[]]> {
     ...loco,
     ["strafeLeft", ["strafe_left"]],
     ["strafeRight", ["strafe_right"]],
-    ["jump", ["jump"]],
+    ["jump", ["jump", "front_flip"]],
+    ["dodge", ["dodge", "aerial_evade", "sword_dash_attack"]],
   ];
   if (twoHand) {
     return [
@@ -901,12 +912,39 @@ function mergeToonLibraryClips(
  * they ship with. The model wears its own weapon mesh (no attached blade), and
  * the melee collider anchors to the Bip001 hand via the usual lazy lookup.
  */
+function rematchClipsToKit(
+  clips: THREE.AnimationClip[],
+  kit: THREE.Object3D,
+): THREE.AnimationClip[] {
+  const boneName = new Map<string, string>();
+  kit.traverse((o) => {
+    const b = o as THREE.Bone;
+    if (b.isBone) {
+      boneName.set(b.name.replace(/[^a-z0-9]/gi, "").toLowerCase(), b.name);
+    }
+  });
+  return clips.map((src) => {
+    const clip = stripPositionTracks(src.clone());
+    for (const t of clip.tracks) {
+      const dot = t.name.lastIndexOf(".");
+      if (dot < 0) continue;
+      const node = t.name.slice(0, dot);
+      const prop = t.name.slice(dot + 1);
+      if (/position|scale/i.test(prop)) continue;
+      const real = boneName.get(node.replace(/[^a-z0-9]/gi, "").toLowerCase());
+      if (real) t.name = `${real}.${prop}`;
+    }
+    return clip;
+  });
+}
+
 export function instantiateToonRts(
   template: ToonRtsTemplate,
   accent: number,
   weapon = "greatsword",
   library?: Partial<Bip001Clips> | null,
   loadout?: WarlordsLoadout | null,
+  donorAnims?: THREE.AnimationClip[] | null,
 ): CharacterInstance {
   const scene = cloneSkeleton(template.scene);
   if (loadout) applyWarlordsLoadout(scene, loadout);
@@ -925,10 +963,13 @@ export function instantiateToonRts(
   }
   fitToonPlayKit(scene);
   const inst = buildInstance(scene, accent, true, "bip001", false);
-  // One clip source only. Mixing Mixamo-retarget + authored Toon clips on the
-  // same mixer is what slightly deformed the limbs. Library only if the kit
-  // has no attack clip (empty D1-style bake).
-  const embedded = mapToonRtsClips(template.animations, weapon);
+  // Prefer same-skeleton Toon donor clips (Aldric knight pack). Mixamo library
+  // only if that source has no attack.
+  const rawAnims =
+    donorAnims && donorAnims.length > 0
+      ? rematchClipsToKit(donorAnims, scene)
+      : template.animations;
+  const embedded = mapToonRtsClips(rawAnims, weapon);
   const clips =
     embedded.attack || !library
       ? embedded
@@ -1464,6 +1505,7 @@ const READY_Z = -0.15;
 function pickClip(s: AnimState): ClipName {
   if (s.cast01 !== undefined && s.cast01 >= 0) return "cast";
   if (s.strike01 >= 0) return s.strikeClip ?? "attack";
+  if (s.dashing) return "dodge";
   if (!s.grounded || s.airborne01 > 0.15) return "jump";
   if (s.guard) return "guard";
   if (s.speed01 > 0.55) return "run";

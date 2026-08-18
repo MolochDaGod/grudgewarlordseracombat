@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { SaberGame } from "@/game/SaberGame";
+import type { AiDebugRow, SaberGame } from "@/game/SaberGame";
 import type { WeaponSkillCatalog } from "@/game/skillcatalog";
 import {
   SPRITE_EFFECTS,
@@ -38,7 +38,7 @@ import {
  * to the game files via the dev-only endpoint.
  */
 
-type Tab = "skill" | "cast" | "ranged" | "linear" | "effects" | "brains";
+type Tab = "skill" | "cast" | "ranged" | "linear" | "effects" | "brains" | "debug";
 
 // ---- Buff/Debuff sub-editor ------------------------------------------------
 
@@ -174,7 +174,11 @@ export function WeaponSkillStudioPanel({
   const [cat, setCat] = useState<WeaponSkillCatalog>(() =>
     game.studioGetCatalog(),
   );
-  const [tab, setTab] = useState<Tab>("skill");
+  const [tab, setTab] = useState<Tab>(layout === "admin" ? "debug" : "skill");
+  const [aiRows, setAiRows] = useState<AiDebugRow[]>([]);
+  const [aiFocus, setAiFocus] = useState<string | null>(null);
+  const [drawRings, setDrawRings] = useState(false);
+  const [drawSkel, setDrawSkel] = useState(false);
   const [classId] = useState<string>(() => game.studioPlayerClass());
   const [skillIdx, setSkillIdx] = useState(0);
   const [castIdx, setCastIdx] = useState(0);
@@ -187,6 +191,22 @@ export function WeaponSkillStudioPanel({
   const [saving, setSaving] = useState(false);
   const catRef = useRef(cat);
   catRef.current = cat;
+
+  useEffect(() => {
+    if (tab !== "debug") return;
+    const tick = () => setAiRows(game.getAiDebugSnapshot());
+    tick();
+    const id = window.setInterval(tick, 125);
+    return () => window.clearInterval(id);
+  }, [tab, game]);
+
+  useEffect(() => {
+    game.setAiDebugDraw({ rings: drawRings, skeleton: drawSkel });
+  }, [game, drawRings, drawSkel]);
+
+  useEffect(() => {
+    game.setAiDebugFocus(aiFocus);
+  }, [game, aiFocus]);
 
   const canSave = studioSaveAvailable();
 
@@ -368,6 +388,9 @@ export function WeaponSkillStudioPanel({
         </button>
         <button className={tab === "brains" ? "on" : ""} onClick={() => setTab("brains")}>
           AI / Yuka
+        </button>
+        <button className={tab === "debug" ? "on" : ""} onClick={() => setTab("debug")}>
+          Live AI
         </button>
       </div>
 
@@ -747,6 +770,91 @@ export function WeaponSkillStudioPanel({
             Yuka Vehicle steers root only. Mixer stays on the kit. Rapier owns
             collide-and-slide. Threat, not nearest-only, picks the target.
           </p>
+        </div>
+      )}
+
+      {tab === "debug" && (
+        <div className="wss-body">
+          <div className="wss-subhead">Live agents</div>
+          <div className="wss-row">
+            <button
+              className={drawRings ? "on" : ""}
+              onClick={() => setDrawRings((v) => !v)}
+            >
+              Aggro rings
+            </button>
+            <button
+              className={drawSkel ? "on" : ""}
+              onClick={() => setDrawSkel((v) => !v)}
+            >
+              Skeleton
+            </button>
+            <button onClick={() => game.studioSpawnDummies(3)}>Spawn 3</button>
+          </div>
+          <p className="wss-clips">
+            Red = aggro 15 m · yellow = detect 25 m · blue = leash 50 m. Skeleton
+            is the kit bones (one mixer). Click a row for bake names/size.
+          </p>
+          <div className="wss-ai-table">
+            <div className="wss-ai-head">
+              <span>Unit</span>
+              <span>Ring</span>
+              <span>Steer</span>
+              <span>HP</span>
+            </div>
+            {aiRows.map((r) => (
+              <button
+                key={r.id}
+                className={`wss-ai-row${aiFocus === r.id ? " on" : ""}${r.kit && !r.kit.ok ? " warn" : ""}`}
+                onClick={() => setAiFocus((cur) => (cur === r.id ? null : r.id))}
+              >
+                <span>{r.label}</span>
+                <span>{r.ring}</span>
+                <span>{r.steer}</span>
+                <span>
+                  {Math.round(r.hp)}/{Math.round(r.maxHp)}
+                </span>
+              </button>
+            ))}
+            {aiRows.length === 0 && (
+              <div className="wss-clips">No agents yet — start a match or spawn dummies.</div>
+            )}
+          </div>
+          {aiFocus &&
+            (() => {
+              const row = aiRows.find((r) => r.id === aiFocus);
+              const k = row?.kit;
+              if (!row) return null;
+              return (
+                <div className="wss-kit">
+                  <div className="wss-subhead">
+                    Kit bake {k?.ok ? "OK" : "FIX"} · {row.label}
+                  </div>
+                  <div className="wss-clips">
+                    height {k ? `${k.heightM.toFixed(2)} m` : "—"} · feet min.y{" "}
+                    {k ? k.feetMinY.toFixed(3) : "—"} · bones {k?.boneCount ?? 0}
+                  </div>
+                  <div className="wss-clips">
+                    hips {k?.hips ?? "—"} · spine {k?.spine ?? "—"} · head{" "}
+                    {k?.head ?? "—"}
+                  </div>
+                  <div className="wss-clips">
+                    handR {k?.handR ?? "—"} · handL {k?.handL ?? "—"} · footL{" "}
+                    {k?.footL ?? "—"} · footR {k?.footR ?? "—"}
+                  </div>
+                  <div className="wss-clips">
+                    meshes {(k?.meshes ?? []).join(", ") || "—"}
+                  </div>
+                  {k?.errors?.length ? (
+                    <div className="wss-status warn">{k.errors.join(" · ")}</div>
+                  ) : null}
+                  <div className="wss-clips">
+                    threat {row.threatTop} ({row.threatVal.toFixed(1)}) · dist{" "}
+                    {row.dist.toFixed(1)} m
+                  </div>
+                </div>
+              );
+            })()}
         </div>
       )}
 

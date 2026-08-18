@@ -146,6 +146,18 @@ export class ThreatTable {
     }
     return best;
   }
+
+  topValue(): number {
+    const id = this.top();
+    return id ? (this.entries.get(id) ?? 0) : 0;
+  }
+
+  snapshot(): { id: string; v: number }[] {
+    return [...this.entries.entries()]
+      .map(([id, v]) => ({ id, v }))
+      .sort((a, b) => b.v - a.v)
+      .slice(0, 6);
+  }
 }
 
 export type SteerMode = "idle" | "wander" | "seek" | "arrive" | "flee";
@@ -191,6 +203,10 @@ export class CombatSteering {
     else if (mode === "arrive") this.vehicle.steering.add(this.arrive);
     else if (mode === "flee") this.vehicle.steering.add(this.flee);
     else if (mode === "wander") this.vehicle.steering.add(this.wander);
+  }
+
+  getMode(): SteerMode {
+    return this.mode;
   }
 
   /** Desired XZ velocity after a Yuka step. */

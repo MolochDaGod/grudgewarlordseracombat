@@ -68,6 +68,7 @@ import {
   aggroState,
   type SteerMode,
 } from "./brains";
+import { firstSkinned, type KitBake } from "./kitBake";
 import { COMBAT_DT, CombatTicker } from "./combatTicker";
 import {
   HEAVY_WARP,
@@ -77,6 +78,7 @@ import {
   type MotionWarp,
 } from "./motionWarp";
 import {
+  SIR_ALDRIC_LOADOUT,
   WARLORDS_TEST_LOADOUTS,
   type WarlordsLoadout,
 } from "./warlordsLoadout";
@@ -161,6 +163,8 @@ function animStateForClip(clip: ClipName): AnimState {
       return { ...base, speed01: 0.4, strafe: 1 };
     case "jump":
       return { ...base, grounded: false, airborne01: 0.5 };
+    case "dodge":
+      return { ...base, dashing: true };
     case "attack":
     case "attack2":
     case "attack3":
@@ -189,6 +193,8 @@ export interface HeroInfo {
   raceId: string;
   /** Champion class from the roster (selects the signature skill kit). */
   classId?: string;
+  /** Warlords prefab slug when the hero is a real roster knight. */
+  prefabId?: string;
   /**
    * "mixamo" => real skeletal-animated FBX (Lucy); "racalvin" => the secret
    * Pirate King (self-contained rigged FBX + bundled clips); "meshy" => an
@@ -322,6 +328,22 @@ type EnemyArchetype = "grunt" | "flanker" | "bruiser" | "caster";
  */
 type FactionRole = EnemyArchetype | "ranged";
 
+export interface AiDebugRow {
+  id: string;
+  label: string;
+  team: number;
+  hp: number;
+  maxHp: number;
+  ring: string;
+  steer: string;
+  threatTop: string;
+  threatVal: number;
+  dist: number;
+  x: number;
+  z: number;
+  kit: KitBake | null;
+}
+
 interface Enemy {
   inst: CharacterInstance;
   /**
@@ -431,6 +453,7 @@ interface Enemy {
   spawnX: number;
   spawnZ: number;
   brainId: string;
+  lastRing?: "leash" | "idle" | "alert" | "aggro";
 }
 
 /**
@@ -816,6 +839,10 @@ export class SaberGame {
   private player = new THREE.Group();
 
   private playerInst: CharacterInstance | null = null;
+  private debugDraw = { rings: false, skeleton: false };
+  private debugRoot: THREE.Group | null = null;
+  private debugSkels: THREE.SkeletonHelper[] = [];
+  private debugFocusId: string | null = null;
 
   private enemies: Enemy[] = [];
 
@@ -1531,6 +1558,143 @@ export class SaberGame {
     this.emit();
   }
 
+  /** Live AI agent debugger — Yuka / threat / kit bake. /admin tab Live. */
+  getAiDebugSnapshot(): AiDebugRow[] {
+    const px = this.player.position.x;
+    const pz = this.player.position.z;
+    const rows: AiDebugRow[] = [];
+    if (this.playerInst) {
+      rows.push({
+        id: "player",
+        label: "Player",
+        team: this.playerTeam,
+        hp: this.health,
+        maxHp: this.maxHealth,
+        ring: "—",
+        steer: "player",
+        threatTop: "—",
+        threatVal: 0,
+        dist: 0,
+        x: px,
+        z: pz,
+        kit: this.playerInst.kitBake ?? null,
+      });
+    }
+    for (const e of this.enemies) {
+      if (!e.alive && e.gone) continue;
+      const p = e.inst.group.position;
+      rows.push({
+        id: e.brainId,
+        label: e.label,
+        team: e.team,
+        hp: e.health,
+        maxHp: e.maxHealth,
+        ring: e.lastRing ?? (e.passive ? "dummy" : "—"),
+        steer: e.steer.getMode(),
+        threatTop: e.threat.top() ?? "—",
+        threatVal: e.threat.topValue(),
+        dist: Math.hypot(p.x - px, p.z - pz),
+        x: p.x,
+        z: p.z,
+        kit: e.inst.kitBake ?? null,
+      });
+    }
+    return rows;
+  }
+
+  setAiDebugDraw(opts: { rings?: boolean; skeleton?: boolean }): void {
+    if (opts.rings !== undefined) this.debugDraw.rings = opts.rings;
+    if (opts.skeleton !== undefined) this.debugDraw.skeleton = opts.skeleton;
+    if (!this.debugDraw.rings && !this.debugDraw.skeleton) this.clearDebugDraw();
+  }
+
+  setAiDebugFocus(id: string | null): void {
+    this.debugFocusId = id;
+  }
+
+  private clearDebugDraw(): void {
+    for (const h of this.debugSkels) {
+      h.removeFromParent();
+    }
+    this.debugSkels = [];
+    if (!this.debugRoot) return;
+    while (this.debugRoot.children.length) {
+      const c = this.debugRoot.children[0]!;
+      this.debugRoot.remove(c);
+      const mesh = c as THREE.Mesh;
+      mesh.geometry?.dispose();
+      const mat = mesh.material;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else mat?.dispose?.();
+    }
+  }
+
+  private updateDebugDraw(): void {
+    if (!this.debugDraw.rings && !this.debugDraw.skeleton) return;
+    if (!this.debugRoot) {
+      this.debugRoot = new THREE.Group();
+      this.debugRoot.name = "AiDebugRoot";
+      this.scene.add(this.debugRoot);
+    }
+    this.clearDebugDraw();
+    if (!this.debugRoot) return;
+    const aggro = catalog.ai?.aggro;
+    const focus = this.debugFocusId;
+    const show = (id: string) => !focus || focus === id || focus === "player";
+    if (this.debugDraw.rings && aggro) {
+      const addRings = (x: number, z: number, y: number) => {
+        const specs: [number, number][] = [
+          [aggro.aggroRadius, 0xff5533],
+          [aggro.detectionRadius, 0xffcc44],
+          [aggro.leashRadius, 0x4488ff],
+        ];
+        for (const [r, color] of specs) {
+          const g = new THREE.RingGeometry(Math.max(0.05, r - 0.06), r, 48);
+          g.rotateX(-Math.PI / 2);
+          const mesh = new THREE.Mesh(
+            g,
+            new THREE.MeshBasicMaterial({
+              color,
+              transparent: true,
+              opacity: 0.28,
+              side: THREE.DoubleSide,
+              depthWrite: false,
+            }),
+          );
+          mesh.position.set(x, y + 0.06, z);
+          this.debugRoot!.add(mesh);
+        }
+      };
+      if (this.playerInst && show("player")) {
+        addRings(this.player.position.x, this.player.position.z, this.player.position.y);
+      }
+      const live = this.enemies.filter((e) => e.alive);
+      const cap = focus ? live : live.slice(0, 8);
+      for (const e of cap) {
+        if (!show(e.brainId)) continue;
+        const p = e.inst.group.position;
+        addRings(p.x, p.z, p.y);
+      }
+    }
+    if (this.debugDraw.skeleton) {
+      const attach = (inst: CharacterInstance | null) => {
+        if (!inst) return;
+        const skinned = firstSkinned(inst.inner);
+        if (!skinned) return;
+        const h = new THREE.SkeletonHelper(skinned);
+        h.frustumCulled = false;
+        this.scene.add(h);
+        this.debugSkels.push(h);
+      };
+      if (show("player")) attach(this.playerInst);
+      for (const e of this.enemies) {
+        if (!e.alive) continue;
+        if (!show(e.brainId)) continue;
+        attach(e.inst);
+      }
+    }
+  }
+
   /** Weapon Skill Studio: remove all dummies (no score). No-op elsewhere. */
   studioClearDummies(): void {
     if (this.mode !== "animtest") return;
@@ -1582,6 +1746,7 @@ export class SaberGame {
     this.disposed = true;
     cancelAnimationFrame(this.rafId);
     this.clearTimers();
+    this.clearDebugDraw();
     for (const e of this.enemies) this.disposeEnemy(e);
     this.enemies = [];
     this.disposeFactionArena();
@@ -1979,13 +2144,29 @@ export class SaberGame {
     if (player.rig === "toonrts") {
       try {
         const template = await loadToonRtsTemplate(player.modelUrl);
-        const library = await this.ensureBip001Clips(
-          template.scene,
-          category,
-          "toonrts",
+        const loadout = this.loadoutFor(player);
+        const donor = loadout?.clipDonor
+          ? await this.loadClipDonor(loadout.clipDonor)
+          : null;
+        const library =
+          donor && donor.animations.length > 0
+            ? null
+            : await this.ensureBip001Clips(
+                template.scene,
+                category,
+                "toonrts",
+              );
+        this.playerAnimMode = donor
+          ? "Skeletal (Toon donor clips, one mixer)"
+          : "Skeletal (Toon Warlords pack, one mixer)";
+        return this.makeToon(
+          template,
+          color,
+          player.weapon,
+          library,
+          player,
+          donor?.animations,
         );
-        this.playerAnimMode = "Skeletal (Toon Warlords pack, one mixer)";
-        return this.makeToon(template, color, player.weapon, library, player);
       } catch {
         this.playerAnimMode = "Capsule (Toon RTS model load failed)";
         return instantiateCapsule(0x2d3550, 0xe6c8a0, color);
@@ -2042,7 +2223,23 @@ export class SaberGame {
     return "human";
   }
 
-  private loadoutFor(h: { raceId?: string; classId?: string; weapon: string }): WarlordsLoadout | undefined {
+  private loadoutFor(h: {
+    id?: string;
+    name?: string;
+    prefabId?: string;
+    raceId?: string;
+    classId?: string;
+    weapon: string;
+  }): WarlordsLoadout | undefined {
+    const key = (h.prefabId ?? h.id ?? h.name ?? "").toLowerCase();
+    if (
+      key.includes("aldric") ||
+      key.includes("roland") ||
+      key.includes("valorheart") ||
+      key === "toon-human-knight"
+    ) {
+      return SIR_ALDRIC_LOADOUT;
+    }
     const race = this.raceKey(h.raceId ?? "human");
     const w = (h.weapon ?? "").toLowerCase();
     const c = (h.classId ?? "").toLowerCase();
@@ -2051,10 +2248,30 @@ export class SaberGame {
         ? "mage"
         : /bow|ranger/.test(w) || c.includes("ranger")
           ? "ranger"
-          : /great/.test(w) || c.includes("warrior")
+          : /great/.test(w)
             ? "warrior"
-            : "knight";
+            : /shield|sword/.test(w) || c.includes("knight")
+              ? "knight"
+              : c.includes("warrior")
+                ? "warrior"
+                : "knight";
     return WARLORDS_TEST_LOADOUTS.find((l) => l.id === `${race}-${role}`);
+  }
+
+  private clipDonors = new Map<string, ToonRtsTemplate>();
+
+  private async loadClipDonor(id: string): Promise<ToonRtsTemplate | null> {
+    const hit = this.clipDonors.get(id);
+    if (hit) return hit;
+    const url = `${import.meta.env.BASE_URL}models/toon-clips/${id}.glb`;
+    try {
+      const tmpl = await loadToonRtsTemplate(url);
+      this.clipDonors.set(id, tmpl);
+      return tmpl;
+    } catch (err) {
+      console.warn("Toon clip donor failed:", id, err);
+      return null;
+    }
   }
 
   private makeToon(
@@ -2062,10 +2279,25 @@ export class SaberGame {
     color: number,
     weapon: string,
     clips: Bip001Clips | null | undefined,
-    hero?: { raceId?: string; classId?: string; weapon: string },
+    hero?: {
+      id?: string;
+      name?: string;
+      prefabId?: string;
+      raceId?: string;
+      classId?: string;
+      weapon: string;
+    },
+    donorAnims?: THREE.AnimationClip[] | null,
   ) {
     const loadout = hero ? this.loadoutFor(hero) : this.loadoutFor({ weapon });
-    const inst = instantiateToonRts(template, color, weapon, clips, loadout);
+    const inst = instantiateToonRts(
+      template,
+      color,
+      weapon,
+      clips,
+      loadout,
+      donorAnims,
+    );
     inst.terrainAt = (x, z) => this.groundAt(x, z);
     return inst;
   }
@@ -5722,6 +5954,7 @@ export class SaberGame {
           this.updateGrapple(COMBAT_DT);
           this.updateCombat(COMBAT_DT);
           this.updateEnemies(COMBAT_DT);
+          this.updateDebugDraw();
           this.updateTimers(COMBAT_DT);
           this.updateAnimTest(COMBAT_DT);
           this.updatePendingCasts(COMBAT_DT);
@@ -6601,6 +6834,7 @@ export class SaberGame {
       const ring = catalog.ai
         ? aggroState(dist, fromSpawn, catalog.ai.aggro)
         : "aggro";
+      e.lastRing = ring;
       if (!frozen && e.pendingCast) {
         e.steer.setMode("idle");
       } else if (!frozen) {
@@ -6913,6 +7147,7 @@ export class SaberGame {
       strike01: this.attackTimer > 0 && this.attackActive ? 1 - this.attackTimer / this.attackDur : -1,
       strikeDur: this.attackDur,
       strikeClip: this.strikeClip,
+      dashing: this.dashTimer > 0,
       cast01: this.castAnimT > 0 ? 1 - this.castAnimT / this.castAnimDur : -1,
       castDur: this.castAnimDur,
       guard: this.blocking,

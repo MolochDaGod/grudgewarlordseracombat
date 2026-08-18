@@ -45,6 +45,7 @@ interface RosterHero {
   weapon: string;
   factionColor: string;
   modelUrl: string;
+  prefabId?: string;
   /**
    * "mixamo" => real skeletal-animated FBX (Lucy); "racalvin" => the secret
    * Pirate King unlocked at the select screen.
@@ -178,7 +179,7 @@ const TOON_RACES: ToonRace[] = [
     raceName: "Western Kingdoms",
     faction: "crusade",
     color: "#7fa8e8",
-    names: ["Ser Roland", "Aldric", "Wren", "Maelis"],
+    names: ["Sir Aldric Valorheart", "Aldric", "Wren", "Maelis"],
   },
   {
     file: "barbarian",
@@ -232,9 +233,19 @@ const TOON_CLASSES: Array<[string, string, string, string]> = [
 
 const TOON_HEROES: RosterHero[] = TOON_RACES.flatMap((race) =>
   TOON_CLASSES.map(([cls, clsTitle, classId, weapon], i) => ({
-    id: `toon-${race.file}-${cls}`,
+    id:
+      race.file === "human" && cls === "knight"
+        ? "sir-aldric-valorheart"
+        : `toon-${race.file}-${cls}`,
     name: race.names[i],
-    title: `${race.raceName} ${clsTitle}`,
+    title:
+      race.file === "human" && cls === "knight"
+        ? "The Iron Bastion"
+        : `${race.raceName} ${clsTitle}`,
+    prefabId:
+      race.file === "human" && cls === "knight"
+        ? "sir-aldric-valorheart"
+        : undefined,
     raceId: race.raceId,
     classId,
     faction: race.faction,
@@ -394,6 +405,7 @@ export default function GameCanvas({ admin = false }: { admin?: boolean }) {
         weapon: h.weapon,
         raceId: h.raceId,
         classId: h.classId,
+        prefabId: h.prefabId,
         rig: h.rig,
       });
       setRoster([...TOON_HEROES, LUCY_HERO]);
@@ -445,6 +457,7 @@ export default function GameCanvas({ admin = false }: { admin?: boolean }) {
       weapon: h.weapon,
       raceId: h.raceId,
       classId: h.classId,
+      prefabId: h.prefabId,
       rig: h.rig,
     });
     // The Toon RTS factions ARE the enemy cast: every toon hero except the
@@ -696,7 +709,7 @@ export default function GameCanvas({ admin = false }: { admin?: boolean }) {
       {admin && (
         <div className="admin-bar">
           <a href="/">Arena arena</a>
-          <span>Admin / Yuka / linear / effects</span>
+          <span>Admin / Live AI / kit bake</span>
         </div>
       )}
 

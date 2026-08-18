@@ -25,6 +25,7 @@ export type ClipName =
   | "strafeLeft"
   | "strafeRight"
   | "jump"
+  | "dodge"
   | "attack"
   | "attack2"
   | "attack3"
@@ -108,6 +109,7 @@ const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
     strafeLeft: "locomotion/left_strafe.fbx",
     strafeRight: "locomotion/right_strafe.fbx",
     jump: "sword_shield/sword_and_shield_jump.fbx",
+    dodge: "sword_shield/sword_and_shield_jump.fbx",
     attack: "sword_shield/sword_and_shield_slash.fbx",
     attack2: "sword_shield/sword_and_shield_slash.fbx",
     attack3: "sword_shield/sword_and_shield_slash.fbx",
@@ -123,6 +125,7 @@ const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
     strafeLeft: "locomotion/left_strafe.fbx",
     strafeRight: "locomotion/right_strafe.fbx",
     jump: "locomotion/jump.fbx",
+    dodge: "locomotion/jump.fbx",
     attack: "magic/Standing_2H_Magic_Attack_01.fbx",
     attack2: "magic/Standing_2H_Magic_Attack_01.fbx",
     attack3: "magic/Standing_2H_Magic_Attack_01.fbx",
@@ -138,6 +141,7 @@ const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
     strafeLeft: "longbow/standing_run_left.fbx",
     strafeRight: "longbow/standing_run_right.fbx",
     jump: "locomotion/jump.fbx",
+    dodge: "locomotion/jump.fbx",
     attack: "longbow/standing_draw_arrow.fbx",
     attack2: "longbow/standing_draw_arrow.fbx",
     attack3: "longbow/standing_draw_arrow.fbx",
