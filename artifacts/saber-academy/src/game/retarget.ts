@@ -24,7 +24,10 @@ import type { ClipName, RawClip } from "./animations";
 // colon-insensitively (FBXLoader sanitizes "mixamorig:Hips" to "mixamorigHips").
 const BIP001_BONE_MAP: Record<string, string> = {
   "Bip001 Pelvis": "mixamorig:Hips",
-  "Bip001 Spine": "mixamorig:Spine1",
+  // Toon / 3ds Max Biped has ONE spine bone. Mixamo Spine1 is the chest —
+  // dumping that onto Bip001 Spine folds both arms into the gut (Ser Roland).
+  // Character-Animator DEFAULT_BONE_MAP: Bip001_Spine → mixamorigSpine.
+  "Bip001 Spine": "mixamorig:Spine",
   "Bip001 Neck": "mixamorig:Neck",
   "Bip001 Head": "mixamorig:Head",
   "Bip001 L Clavicle": "mixamorig:LeftShoulder",

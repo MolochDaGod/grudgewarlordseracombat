@@ -2089,8 +2089,8 @@ export class SaberGame {
         rig === "meshy" || rig === "standout"
           ? `${rig}|${modelKey ?? "?"}|${category}`
           : modelKey === "toonrts"
-            ? `toonrts|${category}`
-            : category;
+            ? `toonrts|spine0|${category}`
+            : `bip|spine0|${category}`;
       return getBip001Clips(template, sources, key);
     } catch (err) {
       console.warn("Grudge Gladiators: Bip001 retarget failed; using procedural animation.", err);
