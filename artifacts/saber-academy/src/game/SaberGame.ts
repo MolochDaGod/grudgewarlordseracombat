@@ -6905,7 +6905,11 @@ export class SaberGame {
       speed01,
       strafe,
       grounded: this.grounded,
-      airborne01: THREE.MathUtils.clamp(this.player.position.y / 2.5, 0, 1),
+      airborne01: THREE.MathUtils.clamp(
+        (this.player.position.y - this.groundY) / 2.5,
+        0,
+        1,
+      ),
       strike01: this.attackTimer > 0 && this.attackActive ? 1 - this.attackTimer / this.attackDur : -1,
       strikeDur: this.attackDur,
       strikeClip: this.strikeClip,

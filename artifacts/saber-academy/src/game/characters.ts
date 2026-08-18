@@ -7,6 +7,7 @@ import type { AnimationLibrary, ClipName } from "./animations";
 import type { Bip001Clips } from "./retarget";
 import {
   applyFootIk,
+  centerStanceOnRoot,
   finishOverlay,
   queueOneShot,
 } from "./combatAnim";
@@ -1737,7 +1738,9 @@ function updateMixamo(inst: CharacterInstance, dt: number, s: AnimState): void {
   inst.prevCast = castActive;
   inst.mixer?.update(dt);
   const sample = s.groundAt ?? inst.terrainAt;
-  if (s.grounded && s.airborne01 < 0.08 && sample) {
+  const planted = s.grounded || s.airborne01 < 0.12;
+  if (planted && sample) {
+    centerStanceOnRoot(inst);
     applyFootIk(inst, sample);
   }
   updateSaberFollow(inst);
