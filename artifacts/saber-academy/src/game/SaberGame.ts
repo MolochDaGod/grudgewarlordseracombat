@@ -4617,6 +4617,11 @@ export class SaberGame {
       // Instant heal tick
       if (type === "heal") {
         this.health = Math.min(this.maxHealth, this.health + b.magnitude);
+        this.spawnSmoke(
+          this.player.position.clone().add(new THREE.Vector3(0, 1.25, 0)),
+          0xb8ff88,
+          { style: "rise", element: "heal", size: 0.7, duration: 0.7, count: 22 },
+        );
         this.emit();
       }
     }
@@ -4848,6 +4853,7 @@ export class SaberGame {
     if (skill.kind === "projectile") this.spawnProjectile(skill);
     else if (skill.kind === "boomerang") this.spawnBoomerang(skill);
     else if (skill.kind === "dash") this.startSpinDash(skill);
+    else if (skill.kind === "heal") this.spawnHealSkill(skill);
     else this.spawnNova(skill);
 
     // Apply self-targeted buffs immediately on cast (heal, haste, etc.).
@@ -5007,6 +5013,7 @@ export class SaberGame {
     if (skill.kind === "projectile") this.spawnProjectile(skill);
     else if (skill.kind === "boomerang") this.spawnBoomerang(skill);
     else if (skill.kind === "dash") this.startSpinDash(skill);
+    else if (skill.kind === "heal") this.spawnHealSkill(skill);
     else this.spawnNova(skill);
     if (skill.buffs?.length) this.applyBuffsToSelf(skill.buffs);
     if (skill.mobility) this.trailTimer = Math.max(this.trailTimer, 0.35);
@@ -5205,6 +5212,34 @@ export class SaberGame {
     obj.add(flash);
     this.scene.add(obj);
     this.novas.push({ obj, ring, flash, radius: skill.radius, life: 0.6, maxLife: 0.6 });
+  }
+
+  /** Gold-green heal bloom (same puff shader as fire/frost). Restores self + allies. */
+  private spawnHealSkill(skill: SkillDef): void {
+    const origin = this.player.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+    const amount = Math.max(4, skill.damage);
+    this.health = Math.min(this.maxHealth, this.health + amount);
+    this.spawnSmoke(origin, skill.color || 0xb8ff88, {
+      style: "rise",
+      element: "heal",
+      size: 0.95,
+      duration: 0.95,
+      count: 40,
+      intensity: 1.2,
+    });
+    this.spawnImpact(origin, skill.texture || "heal", skill.color || 0xb8ff88, 1.6);
+    const r = Math.max(2, skill.radius);
+    for (const e of this.enemies) {
+      if (!e.alive || !e.ally) continue;
+      if (e.inst.group.position.distanceTo(this.player.position) > r) continue;
+      e.health = Math.min(e.maxHealth, e.health + amount * 0.65);
+      this.drawHealthBar(e);
+      this.spawnSmoke(
+        e.inst.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)),
+        0xb8ff88,
+        { style: "rise", element: "heal", size: 0.55, duration: 0.7, count: 20 },
+      );
+    }
   }
 
   /**
@@ -6227,6 +6262,26 @@ export class SaberGame {
     if (this.keys["KeyA"]) move.sub(camRight);
     const hasInput = move.lengthSq() > 0;
     if (hasInput) move.normalize();
+
+    // MM free-flow: locked target biases WASD toward the standoff (melee close /
+    // ranged kite) instead of a second controller.
+    if (hasInput && this.targetEnemy?.alive) {
+      const mm = catalog.mm?.playerMm ?? 40;
+      const want = enemyStandoff(mm, mm < 0);
+      const tp = this.targetEnemy.inst.group.position;
+      const to = this.tmpV3.set(
+        tp.x - this.player.position.x,
+        0,
+        tp.z - this.player.position.z,
+      );
+      const dist = to.length();
+      if (dist > 0.25) {
+        to.multiplyScalar(1 / dist);
+        if (dist > want + 0.8) move.addScaledVector(to, 0.45);
+        else if (dist < want - 0.8) move.addScaledVector(to, -0.45);
+        if (move.lengthSq() > 1e-6) move.normalize();
+      }
+    }
 
     // Dash: double-tap a direction for a force burst. Allowed on the ground, or
     // once in the air (jump dash) — air dashes neutralize the fall for a blink.

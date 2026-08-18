@@ -812,6 +812,10 @@ function toonRtsClipMap(weapon: string): ReadonlyArray<[ClipName, string[]]> {
       ["attack2", ["sword_combo_finisher", "sword_dash_attack", "sword_attack_a"]],
       ["attack3", ["sword_dash_attack", "run_jump_attack", "sword_attack_c"]],
       ["guard", ["sword_block"]],
+      ["cast", ["magic_cast", "sword_attack_a"]],
+      ["cast2", ["magic_cast_2h", "magic_cast"]],
+      ["cast3", ["run_jump_attack", "magic_cast"]],
+      ["heal", ["magic_cast", "magic_cast_2h", "sword_attack_a"]],
     ];
   }
   if (spear) {
@@ -821,6 +825,8 @@ function toonRtsClipMap(weapon: string): ReadonlyArray<[ClipName, string[]]> {
       ["attack2", ["sword_attack_c", "sword_attack_a"]],
       ["attack3", ["sword_combo_finisher", "run_jump_attack", "sword_attack_c"]],
       ["guard", ["sword_block"]],
+      ["cast", ["magic_cast", "sword_attack_a"]],
+      ["heal", ["magic_cast", "sword_attack_a"]],
     ];
   }
   if (axe) {
@@ -830,6 +836,8 @@ function toonRtsClipMap(weapon: string): ReadonlyArray<[ClipName, string[]]> {
       ["attack2", ["sword_dash_attack", "sword_attack_a"]],
       ["attack3", ["sword_combo_finisher", "run_jump_attack", "sword_attack_c"]],
       ["guard", ["sword_block"]],
+      ["cast", ["magic_cast", "sword_attack_c"]],
+      ["heal", ["magic_cast", "sword_attack_c"]],
     ];
   }
   if (category === "blade") {
@@ -839,6 +847,10 @@ function toonRtsClipMap(weapon: string): ReadonlyArray<[ClipName, string[]]> {
       ["attack2", ["sword_attack_c", "sword_dash_attack", "sword_attack_a"]],
       ["attack3", ["sword_combo_finisher", "sword_dash_attack", "sword_attack_c"]],
       ["guard", ["sword_block"]],
+      ["cast", ["magic_cast", "sword_attack_a"]],
+      ["cast2", ["magic_cast_2h", "magic_cast"]],
+      ["cast3", ["sword_combo_finisher", "magic_cast"]],
+      ["heal", ["magic_cast", "magic_cast_2h"]],
     ];
   }
   if (category === "bow") {
@@ -848,6 +860,8 @@ function toonRtsClipMap(weapon: string): ReadonlyArray<[ClipName, string[]]> {
       ["attack2", ["bow_shot", "attack"]],
       ["attack3", ["bow_shot", "attack"]],
       ["cast", ["bow_shot", "attack"]],
+      ["cast2", ["bow_shot", "attack"]],
+      ["heal", ["magic_cast", "bow_shot"]],
     ];
   }
   return [
@@ -856,6 +870,9 @@ function toonRtsClipMap(weapon: string): ReadonlyArray<[ClipName, string[]]> {
     ["attack2", ["magic_cast_2h", "magic_cast", "attack"]],
     ["attack3", ["magic_cast_2h", "run_jump_attack", "magic_cast", "attack"]],
     ["cast", ["magic_cast", "magic_cast_2h", "attack"]],
+    ["cast2", ["magic_cast_2h", "magic_cast", "attack"]],
+    ["cast3", ["run_jump_attack", "magic_cast_2h", "magic_cast"]],
+    ["heal", ["magic_cast", "magic_cast_2h", "attack"]],
   ];
 }
 

@@ -30,6 +30,9 @@ export type ClipName =
   | "attack2"
   | "attack3"
   | "cast"
+  | "cast2"
+  | "cast3"
+  | "heal"
   | "guard"
   | "hit"
   | "death";
@@ -114,6 +117,9 @@ const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
     attack2: "sword_shield/sword_and_shield_slash.fbx",
     attack3: "sword_shield/sword_and_shield_slash.fbx",
     cast: "magic/Standing_2H_Magic_Attack_01.fbx",
+    cast2: "magic/Standing_2H_Magic_Attack_01.fbx",
+    cast3: "magic/Standing_2H_Magic_Attack_01.fbx",
+    heal: "magic/Standing_2H_Magic_Attack_01.fbx",
     guard: "sword_shield/sword_and_shield_block_idle.fbx",
     hit: "sword_shield/sword_and_shield_impact.fbx",
     death: "sword_shield/sword_and_shield_death.fbx",
@@ -130,6 +136,9 @@ const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
     attack2: "magic/Standing_2H_Magic_Attack_01.fbx",
     attack3: "magic/Standing_2H_Magic_Attack_01.fbx",
     cast: "magic/Standing_2H_Magic_Attack_01.fbx",
+    cast2: "magic/Standing_2H_Magic_Attack_01.fbx",
+    cast3: "magic/Standing_2H_Magic_Attack_01.fbx",
+    heal: "magic/Standing_2H_Magic_Attack_01.fbx",
     guard: "magic/Standing_Block_Idle.fbx",
     hit: "magic/Standing_React_Small_From_Front.fbx",
     death: "magic/Standing_React_Death_Forward.fbx",
@@ -146,6 +155,9 @@ const CLIP_SETS: Record<WeaponCategory, Record<ClipName, string>> = {
     attack2: "longbow/standing_draw_arrow.fbx",
     attack3: "longbow/standing_draw_arrow.fbx",
     cast: "longbow/standing_draw_arrow.fbx",
+    cast2: "longbow/standing_draw_arrow.fbx",
+    cast3: "longbow/standing_draw_arrow.fbx",
+    heal: "magic/Standing_2H_Magic_Attack_01.fbx",
     guard: "longbow/standing_block.fbx",
     hit: "longbow/standing_react_small_from_front.fbx",
     death: "longbow/standing_death_forward_01.fbx",
@@ -256,6 +268,34 @@ export function loadClip(url: string, name: ClipName): Promise<THREE.AnimationCl
 const sourcesByCat = new Map<WeaponCategory, Promise<RawClip[]>>();
 const libraryByCat = new Map<WeaponCategory, Promise<AnimationLibrary>>();
 
+/** Studio overlay — relative FBX paths already on the CDN pack. */
+export type AnimPackOverrides = Partial<
+  Record<WeaponCategory, Partial<Record<ClipName, string>>>
+>;
+
+let clipOverride: AnimPackOverrides = {};
+
+export function setClipSetOverride(next: AnimPackOverrides | undefined): void {
+  clipOverride = next ?? {};
+  sourcesByCat.clear();
+  libraryByCat.clear();
+}
+
+export function resolveClipRel(category: WeaponCategory, name: ClipName): string {
+  return clipOverride[category]?.[name] || CLIP_SETS[category][name];
+}
+
+/** Inclusive dropdown: every wired uMMORPG/Mixamo file per pack. */
+export const PACK_FILE_OPTIONS: Record<WeaponCategory, string[]> = {
+  blade: [...new Set(Object.values(CLIP_SETS.blade))],
+  magic: [...new Set(Object.values(CLIP_SETS.magic))],
+  bow: [...new Set(Object.values(CLIP_SETS.bow))],
+};
+
+export function defaultClipRel(category: WeaponCategory, name: ClipName): string {
+  return CLIP_SETS[category][name];
+}
+
 /**
  * Load and cache the raw Mixamo sources (FBX objects + clips) for a weapon
  * category, used by the retarget path (Bip001 kits). A failure clears the cache
@@ -271,7 +311,7 @@ export function loadAnimationSources(
       const names = Object.keys(set) as ClipName[];
       return Promise.all(
         names.map(async (name): Promise<RawClip> => {
-          const { group, clip } = await loadFbxRaw(set[name]);
+          const { group, clip } = await loadFbxRaw(resolveClipRel(category, name));
           // Clone so shared FBX (combo steps on one slash) keep their own name.
           const tagged = clip.clone();
           tagged.name = name;

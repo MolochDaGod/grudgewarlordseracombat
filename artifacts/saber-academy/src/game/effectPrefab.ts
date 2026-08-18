@@ -15,7 +15,8 @@ export type EffectKind =
   | "smoke"
   | "fire"
   | "flame"
-  | "frost";
+  | "frost"
+  | "heal";
 
 export type EffectAttach =
   | "R_hand"
@@ -49,6 +50,7 @@ export const EFFECT_KINDS: EffectKind[] = [
   "fire",
   "flame",
   "frost",
+  "heal",
 ];
 
 export const EFFECT_ATTACH: EffectAttach[] = [
@@ -89,6 +91,7 @@ export const EFFECT_MESH_IDS = [
   "fire",
   "flame",
   "frost",
+  "heal",
 ] as const;
 
 export interface LinearGlobal {
@@ -145,12 +148,19 @@ export const ELEMENT_LINEAR: Record<string, LinearCastExtras["linearId"]> = {
 };
 
 export function defaultPrimitive(kind: EffectKind = "travel"): EffectPrimitive {
-  if (kind === "smoke" || kind === "fire" || kind === "flame" || kind === "frost") {
+  if (
+    kind === "smoke" ||
+    kind === "fire" ||
+    kind === "flame" ||
+    kind === "frost" ||
+    kind === "heal"
+  ) {
     const presets: Record<string, { color: string; size: number; intensity: number }> = {
       smoke: { color: "#8899aa", size: 0.7, intensity: 0.9 },
       fire: { color: "#ff6622", size: 0.85, intensity: 1 },
       flame: { color: "#ffaa33", size: 0.55, intensity: 1.1 },
       frost: { color: "#7ec8ff", size: 0.75, intensity: 1 },
+      heal: { color: "#b8ff88", size: 0.9, intensity: 1.15 },
     };
     const p = presets[kind]!;
     return {
