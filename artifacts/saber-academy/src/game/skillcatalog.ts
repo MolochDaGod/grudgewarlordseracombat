@@ -82,7 +82,16 @@ export interface WeaponSkillCatalog {
    * skills and the (up to six) elemental casts. The engine builds its dispatch
    * from these so click-to-rebind in the Studio changes the live key.
    */
-  hotkeys: { skill: string[]; cast: string[] };
+  hotkeys: {
+    skill: string[];
+    cast: string[];
+    /** Combat slots on Shift+1..5. */
+    shiftSkill?: string[];
+    /** Tap Q — second weapon loadout (Casting T0 / fleet). */
+    swap?: string;
+  };
+  /** Second-weapon skill pair (Q swap). */
+  classSkillsB?: Record<string, SkillDef[]>;
   /** Player ranged LMB shots. */
   rangedShots: { arrow: ArrowShotParams; orb: OrbShotParams };
   /** Linear skillshot global multipliers (Casting / LinearAbility SSOT). */
@@ -121,6 +130,7 @@ export function applyCatalog(next: WeaponSkillCatalog): void {
   catalog.classSkills = clone(next.classSkills);
   catalog.elementalCasts = clone(next.elementalCasts);
   catalog.hotkeys = clone(next.hotkeys);
+  catalog.classSkillsB = clone(next.classSkillsB ?? next.classSkills);
   catalog.rangedShots = clone(next.rangedShots);
   catalog.linear = clone(next.linear ?? { global: { ...DEFAULT_LINEAR_GLOBAL } });
   catalog.effects = clone(next.effects ?? []);
@@ -183,9 +193,11 @@ export function syncCastDefs(): void {
  * Returns fresh SkillDef copies so callers can hold them without aliasing the
  * catalog (the engine re-reads the catalog for live values where it matters).
  */
-export function catalogSkills(classId: string): SkillDef[] {
-  const set =
-    catalog.classSkills[classId.toLowerCase()] ?? catalog.classSkills.warrior;
+export function catalogSkills(classId: string, setB = false): SkillDef[] {
+  const bank = setB
+    ? (catalog.classSkillsB ?? catalog.classSkills)
+    : catalog.classSkills;
+  const set = bank[classId.toLowerCase()] ?? bank.warrior ?? catalog.classSkills.warrior;
   return clone(set);
 }
 
