@@ -36,8 +36,8 @@
     "cast": ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"]
   },
   "rangedShots": {
-    "arrow": { "releaseMs": 300, "speed": 42, "range": 46, "damage": 16, "radius": 0, "color": 16766554, "knock": 4 },
-    "orb": { "castT": 1.5, "speed": 26, "range": 46, "damage": 26, "radius": 3.2, "color": 8376575, "knock": 6, "splashKnock": 6 }
+    "arrow": { "releaseMs": 300, "speed": 48, "range": 46, "damage": 16, "radius": 0, "color": 16766554, "knock": 4, "arc": 2.4, "gravity": 14, "length": 1.8 },
+    "orb": { "castT": 1.5, "speed": 34, "range": 46, "damage": 26, "radius": 2.4, "color": 16740608, "knock": 6, "splashKnock": 6, "arc": 3.6, "gravity": 16, "length": 2.6 }
   },
   "linear": {
     "global": {

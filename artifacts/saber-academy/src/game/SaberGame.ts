@@ -566,9 +566,10 @@ interface PlayerShot {
   range: number;
   damage: number;
   color: number;
-  kind: "arrow" | "orb";
+  kind: "arrow" | "orb" | "blade";
   /** Orb splash radius (arrows are single-target). */
   radius: number;
+  gravity: number;
 }
 
 /** An expanding ground nova (AoE applied on spawn; this is the visual). */
@@ -631,7 +632,7 @@ const COMBO_CANCEL = 0.18;
 const STUN_TIME = 2.0;
 const BLOCK_PUSHBACK = 9;
 // Deterministic attack lunge: strikes step the player into contact range.
-const LUNGE_MAX = 5.0; // farthest gap a single strike will close (world units)
+const LUNGE_MAX = 10.0; // Freeflow closer — farthest gap a strike will close
 const LUNGE_SPEED = 26; // lunge travel speed during the swing windup
 const LUNGE_STANDOFF = 2.2; // desired distance from the target at contact
 // Force Jump: double-tap Space for a second, force-powered jump mid-air.
@@ -1175,6 +1176,11 @@ export class SaberGame {
 
   private attackHitSet = new Set<Enemy>();
 
+  /** One blade-residual + apex bolt per swing (combo each attack). */
+  private swingApexDone = false;
+
+  private fireOrbProto: THREE.Object3D | null = null;
+
   /** Duration of the current swing (light vs heavy), for arc/anim timing. */
   private attackDur = ATTACK_DUR;
 
@@ -1386,6 +1392,7 @@ export class SaberGame {
     this.classId = classFor(player);
     this.skills = catalogSkills(this.classId);
     this.cooldowns = this.skills.map(() => 0);
+    void this.ensureFireOrbProto();
     this.emit();
 
     // Build off to the side; only commit if this start is still the latest.
@@ -4169,7 +4176,41 @@ export class SaberGame {
   }
 
   /**
-   * Soft focus: continuously track the enemy under the reticle (camera-aim
+   * Freeflow pick: best living foe in stick / facing direction inside 12 m.
+   * Used as a melee weapon-skill closer when lock/soft-focus is empty.
+   */
+  private pickFreeflowTarget(): Enemy | null {
+    const input = this.tmpV.set(0, 0, 0);
+    if (this.keys["KeyW"] || this.keys["ArrowUp"]) input.z += 1;
+    if (this.keys["KeyS"] || this.keys["ArrowDown"]) input.z -= 1;
+    if (this.keys["KeyA"] || this.keys["ArrowLeft"]) input.x -= 1;
+    if (this.keys["KeyD"] || this.keys["ArrowRight"]) input.x += 1;
+    const camF = new THREE.Vector3(Math.sin(this.camHeading), 0, Math.cos(this.camHeading));
+    const camR = new THREE.Vector3(camF.z, 0, -camF.x);
+    const dir =
+      input.lengthSq() > 0.01
+        ? camF.multiplyScalar(input.z).add(camR.multiplyScalar(input.x)).normalize()
+        : this.facingDir();
+    let best: Enemy | null = null;
+    let bestDot = 0.12;
+    for (const e of this.enemies) {
+      if (!this.isPlayerFoe(e)) continue;
+      const to = e.inst.group.position.clone().sub(this.player.position);
+      to.y = 0;
+      const dist = to.length();
+      if (dist < 0.4 || dist > 12) continue;
+      to.multiplyScalar(1 / dist);
+      const dot = dir.dot(to);
+      if (dot > bestDot) {
+        bestDot = dot;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Soft focus: continuously track the enemy under the reticle (camera-aim)
    * cone only) and hover a subtle dim ring over it. Swings and casts aim at
    * this target when no hard lock is active — the highlight always tells the
    * player exactly what the next strike will hit.
@@ -4322,8 +4363,15 @@ export class SaberGame {
     const isOrb = kind === "orb";
     const params = rangedShot(kind);
     const color = params.color;
-    const node = isOrb ? this.makeOrbNode(color) : makeArrowNode(color);
-    if (!isOrb) orientAlong(node, vel);
+    const length = params.length ?? (isOrb ? 2.4 : 1.6);
+    const arc = params.arc ?? (isOrb ? 3.2 : 2.0);
+    const gravity = params.gravity ?? 15;
+    const node = isOrb
+      ? this.makeFireBulletNode(color, length)
+      : makeArrowNode(color);
+    vel.y += arc / Math.max(8, params.speed);
+    if (vel.lengthSq() > 1e-6) vel.normalize();
+    orientAlong(node, vel);
     node.position.copy(origin);
     this.scene.add(node);
     this.playerShots.push({
@@ -4335,6 +4383,7 @@ export class SaberGame {
       color,
       kind,
       radius: params.radius,
+      gravity,
     });
   }
 
@@ -4366,14 +4415,15 @@ export class SaberGame {
     // Sword follows mouse: swings go where the reticle points. Aim assist only
     // snaps to a locked target or an enemy actually inside the camera-aim cone
     // — never to an off-screen "nearest" enemy behind the player.
-    const aim =
+    let aim =
       this.targetEnemy && this.targetEnemy.alive
         ? this.targetEnemy
         : this.softTarget && this.softTarget.alive
           ? this.softTarget
           : null;
-    this.swingAim = aim ?? null;
     this.lungeRemain = 0;
+    if (!aim) aim = this.pickFreeflowTarget();
+    this.swingAim = aim ?? null;
     this.swingWarp = resolveWarp(
       this.player.position.x,
       this.player.position.z,
@@ -4385,6 +4435,14 @@ export class SaberGame {
     if (aim && this.grounded && this.swingWarp.active) {
       this.facing = this.swingWarp.toYaw;
       this.lungeDir.set(Math.sin(this.facing), 0, Math.cos(this.facing));
+      const dist = Math.hypot(
+        aim.inst.group.position.x - this.player.position.x,
+        aim.inst.group.position.z - this.player.position.z,
+      );
+      if (dist > 4.2) {
+        this.trailTimer = Math.max(this.trailTimer, 0.28);
+        this.dashTimer = Math.max(this.dashTimer, 0.14);
+      }
     } else if (!aim) {
       this.facing = this.camHeading;
       this.swingWarp.active = false;
@@ -4416,6 +4474,7 @@ export class SaberGame {
     this.attackTimer = this.attackDur;
     this.attackActive = true;
     this.attackHitSet.clear();
+    this.swingApexDone = false;
     this.swingId++;
     if (heavy) this.cameraShake(0.25, 120);
     // Air strike: dive downward for a plunging hit.
@@ -5542,6 +5601,91 @@ export class SaberGame {
   }
 
   /**
+   * Fire-bending bullet: split orb-fire at ~0.16 m, stretched along +Z
+   * (never the whole fireball.glb scene). Falls back to elongated sprites.
+   */
+  private makeFireBulletNode(color: number, length: number): THREE.Group {
+    const g = new THREE.Group();
+    const proto = this.fireOrbProto;
+    if (proto) {
+      const mesh = proto.clone(true);
+      mesh.scale.set(0.16, 0.16, 0.16 * Math.max(1, length));
+      g.add(mesh);
+    }
+    const glow = this.makeVfxSprite("flamestrike", color, 0.55);
+    glow.scale.set(0.22, 0.22 * length, 1);
+    g.add(glow);
+    return g;
+  }
+
+  private async ensureFireOrbProto(): Promise<void> {
+    if (this.fireOrbProto) return;
+    const url = `${import.meta.env.BASE_URL}models/vfx/orbs/orb-fire.glb`;
+    try {
+      const gltf = await new GLTFLoader().loadAsync(url);
+      this.fireOrbProto = gltf.scene;
+    } catch {
+      this.fireOrbProto = null;
+    }
+  }
+
+  /**
+   * Combo apex: steel blade residual (opposite of the fire bullet) plus a
+   * short projectile that detonates as a melee AOE / impact.
+   */
+  private spawnMeleeApex(): void {
+    const dir = this.facingDir();
+    const hand = this.playerInst
+      ? attackHandWorld(this.playerInst, this.tmpHand)
+      : null;
+    const origin = (
+      hand ?? this.player.position.clone().add(new THREE.Vector3(0, 1.25, 0))
+    ).add(dir.clone().multiplyScalar(0.35));
+    const steel = 0x9ec8ff;
+    const ribbonPts = [
+      origin.clone().add(dir.clone().multiplyScalar(-0.2)),
+      origin.clone().add(dir.clone().multiplyScalar(1.4)),
+    ];
+    const geo = new THREE.BufferGeometry().setFromPoints(ribbonPts);
+    const mat = new THREE.LineBasicMaterial({
+      color: steel,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const ribbon = new THREE.Line(geo, mat);
+    ribbon.renderOrder = 910;
+    this.scene.add(ribbon);
+    this.slashExec = {
+      pts: ribbonPts,
+      t: 0,
+      dur: 0.12,
+      hit: new Set(),
+      ribbon,
+      fade: 0.22,
+    };
+    const vel = dir.clone();
+    vel.y += 0.12;
+    vel.normalize();
+    const node = this.makeVfxSprite("hit", steel, 0.85);
+    node.position.copy(origin);
+    this.scene.add(node);
+    this.playerShots.push({
+      node,
+      velocity: vel.multiplyScalar(18),
+      origin: origin.clone(),
+      range: 3.6,
+      damage: 8 + this.comboStep * 3,
+      color: steel,
+      kind: "blade",
+      radius: 1.8,
+      gravity: 6,
+    });
+    this.spawnImpact(origin.clone().add(dir.clone().multiplyScalar(1.1)), "hit", steel, 1.15);
+  }
+
+  /**
    * Advance a boomerang: fly straight out to `def.range`, then home back to the
    * player and vanish when caught (or after a safety timeout). It spins fast and
    * can strike each enemy repeatedly on a short per-enemy cooldown, so it hits
@@ -5788,7 +5932,11 @@ export class SaberGame {
     for (let i = this.playerShots.length - 1; i >= 0; i--) {
       const shot = this.playerShots[i];
       const from = this.tmpV.copy(shot.node.position);
+      shot.velocity.y -= (shot.gravity ?? 0) * dt;
       shot.node.position.addScaledVector(shot.velocity, dt);
+      if (shot.velocity.lengthSq() > 1e-6) {
+        orientAlong(shot.node, shot.velocity.clone().normalize());
+      }
       if (shot.kind === "orb") {
         // Slow pulse so the orb reads as living magic, not a static sprite.
         const k = 1 + Math.sin(performance.now() / 90) * 0.12;
@@ -5819,8 +5967,8 @@ export class SaberGame {
       if (struck) {
         const dir = shot.velocity.clone().setY(0);
         if (dir.lengthSq() > 1e-4) dir.normalize();
-        if (shot.kind === "orb") {
-          // Arcane splash: full damage to the struck enemy, falloff around it.
+        if (shot.kind === "orb" || shot.kind === "blade") {
+          // Fire/blade splash: full damage to the struck enemy, falloff around it.
           const orb = rangedShot("orb") as OrbShotParams;
           this.spawnImpact(shot.node.position.clone(), "hit", shot.color, 1.6);
           this.cameraShake(0.12, 90);
@@ -6241,6 +6389,7 @@ export class SaberGame {
         : new THREE.Vector3(Math.sin(this.facing), 0, Math.cos(this.facing));
       this.velocity.copy(dir).multiplyScalar(DASH_SPEED);
       this.dashTimer = DASH_TIME;
+      this.trailTimer = Math.max(this.trailTimer, DASH_TIME + 0.18);
       this.dashCooldown = 0.5;
       // Dodge-roll grants brief invulnerability.
       this.iFrames = DODGE_IFRAMES;
@@ -6738,6 +6887,10 @@ export class SaberGame {
         elapsed >= this.meleeWindup &&
         elapsed <= this.meleeWindup + this.meleeActive
       ) {
+        if (!this.swingApexDone) {
+          this.swingApexDone = true;
+          this.spawnMeleeApex();
+        }
         this.resolveAttack();
       }
       if (this.attackTimer <= 0) {

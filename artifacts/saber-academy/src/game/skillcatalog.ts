@@ -39,6 +39,12 @@ export interface ArrowShotParams {
   color: number;
   /** Knockback impulse applied on hit. */
   knock: number;
+  /** Extra loft (m/s) so the shot flies an arc. */
+  arc?: number;
+  /** Gravity on the shot (m/s²). */
+  gravity?: number;
+  /** Stretch along travel so the shot reads as a bullet, not a ball. */
+  length?: number;
 }
 
 export interface OrbShotParams {
@@ -53,6 +59,9 @@ export interface OrbShotParams {
   knock: number;
   /** Knockback on splash-caught enemies. */
   splashKnock: number;
+  arc?: number;
+  gravity?: number;
+  length?: number;
 }
 
 /** The full editable catalog. Colors are stored as integers (0xRRGGBB). */
