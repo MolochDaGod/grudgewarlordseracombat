@@ -239,6 +239,28 @@ export interface AiCatalog {
   spellTelegraphSec: number;
 }
 
+/** Ally squad — follow slots + peel. Metres from AGGRO_CONFIG, not new rings. */
+export const ALLY_AI = {
+  followStart: 4.5,
+  followHold: 2.8,
+  fleeHp: 0.22,
+  peelThreat: 48,
+} as const;
+
+/** Fan behind the player so allies do not stack on the capsule. */
+export function allyFormationOffset(
+  slot: number,
+  count: number,
+  yaw: number,
+): { x: number; z: number } {
+  const i = slot - (count - 1) * 0.5;
+  const back = 2.6;
+  const side = i * 1.35;
+  const s = Math.sin(yaw);
+  const c = Math.cos(yaw);
+  return { x: -s * back + c * side, z: -c * back + s * side };
+}
+
 export function defaultAiCatalog(): AiCatalog {
   return {
     aggro: { ...AGGRO_CONFIG },

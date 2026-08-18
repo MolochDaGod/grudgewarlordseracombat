@@ -49,6 +49,7 @@ import { type BuffDef } from "./buffs";
 import {
   catalog,
   catalogSkills,
+  catalogCastAim,
   rangedShot,
   keyLabel,
   applyCatalog,
@@ -57,6 +58,12 @@ import {
   type OrbShotParams,
   type ArrowShotParams,
 } from "./skillcatalog";
+import {
+  gradeCastRelease,
+  labelForGrade,
+  modsForGrade,
+  type CastReleaseMods,
+} from "./castTiming";
 import { ABILITY_LIBRARY } from "./abilityLibrary";
 import { saveCatalog } from "./studio";
 import { mmForWeapon, enemyStandoff } from "./mm";
@@ -64,9 +71,11 @@ import { initRapier, PhysicsWorld, type CharacterBody } from "./physics";
 import { toonRaceKitUrl } from "@/lib/fleetAssets";
 import { StaticWorldBVH, makeBodyHitter, type BodyHitter } from "./worldbvh";
 import {
+  ALLY_AI,
   CombatSteering,
   ThreatTable,
   aggroState,
+  allyFormationOffset,
   type SteerMode,
 } from "./brains";
 import { firstSkinned, type KitBake } from "./kitBake";
@@ -248,8 +257,16 @@ export interface HudState {
   targetLocked: boolean;
   /** Focused enemy (hard lock first, else soft focus) for the target frame. */
   target?: { name: string; healthPct: number; locked: boolean };
-  /** Elemental cast wind-up in progress (drives the HUD cast bar). */
-  castBar?: { name: string; t01: number; color: string };
+  /** Elemental / ranged wind-up (existing cast bar + green/gold release). */
+  castBar?: {
+    name: string;
+    t01: number;
+    color: string;
+    greenStart?: number;
+    goldStart?: number;
+    goldEnd?: number;
+    grade?: "early" | "good" | "crit" | "late";
+  };
   /** Animation Test diagnostics; present only while in animtest mode. */
   diag?: AnimDiag;
 }
@@ -567,7 +584,7 @@ interface PlayerShot {
   range: number;
   damage: number;
   color: number;
-  kind: "arrow" | "orb" | "blade";
+  kind: "arrow" | "orb" | "blade" | "fire";
   /** Orb splash radius (arrows are single-target). */
   radius: number;
   gravity: number;
@@ -922,6 +939,23 @@ export class SaberGame {
     clip: THREE.AnimationClip | null;
     extent: number;
   } | null = null;
+  /** Split Fire & Ice hands + any skill meshId proto (not one-slot warcry). */
+  private vfxMeshCache = new Map<
+    string,
+    { scene: THREE.Object3D; clip: THREE.AnimationClip | null; extent: number }
+  >();
+  private handOverlay: {
+    root: THREE.Object3D;
+    life: number;
+    id: string;
+  } | null = null;
+  private fireTurrets: {
+    root: THREE.Object3D;
+    cd: number;
+    life: number;
+  }[] = [];
+  private mmbDownAt = -1;
+  private fistMelee = false;
 
   /** MOBA-style linear aim strip shown while a cast winds up. */
   private castAimLine: CastAimLine | null = null;
@@ -968,6 +1002,10 @@ export class SaberGame {
 
   /** Pending projectile released when the charge / draw timer ends. */
   private pendingShot: "arrow" | "orb" | null = null;
+  /** Hold-LMB fill on the existing cast bar (bow / staff). */
+  private rangedHoldKind: "arrow" | "orb" | null = null;
+  private rangedHoldT = 0;
+  private rangedHoldDur = 0;
 
   /** Mage LMB: remaining cast time; > 0 means an arcane bolt is charging. */
   private arcaneCharge = 0;
@@ -3769,16 +3807,12 @@ export class SaberGame {
    * (returned as the sentinel `"player"`). Returns null when `e` has no valid
    * target. Used by AI target selection so allies and rival squads all fight.
    */
-  private nearestTargetFor(e: Enemy): Enemy | "player" | null {
+  private nearestTargetFor(e: Enemy, dt = 0.016): Enemy | "player" | null {
     const pos = e.inst.group.position;
     const ai = catalog.ai;
     const aggro = ai?.aggro;
     const now = performance.now() / 1000;
-    e.threat.tick(
-      0.016,
-      ai?.threat.decayPerSec ?? 4,
-      now,
-    );
+    e.threat.tick(dt, ai?.threat.decayPerSec ?? 4, now);
     const resolveId = (id: string | null): Enemy | "player" | null => {
       if (!id) return null;
       if (id === "player" && e.team !== this.playerTeam) return "player";
@@ -3817,6 +3851,7 @@ export class SaberGame {
     );
     if (ring === "leash") return null;
     if (ring === "idle") return e.threat.top() ? best : null;
+    if (dist > aggro.detectionRadius && !e.threat.top()) return null;
     return best;
   }
 
@@ -3828,6 +3863,7 @@ export class SaberGame {
       // Cross-faction AI hit: apply directly (bypasses the player's
       // block/parry/i-frame logic, which only defends the player).
       this.damageEnemy(target, amount, attacker.factionColor);
+      target.threat.add(attacker.brainId, amount * (catalog.ai?.threat.damageMul ?? 1));
     }
   }
 
@@ -3990,10 +4026,12 @@ export class SaberGame {
       // Keeping the hold past DRAW_HOLD_T starts a drawn slash (see updatePlayer).
       this.tryAttack(e.shiftKey);
     } else if (e.button === 1) {
-      // MMB: hip-pistol quick-draw → tentacle hook at the crosshair → dash.
+      // MMB tap: fire finger-gun. Hold: deploy fire turret. Shift+MMB: tentacle.
       e.preventDefault();
       this.middleDown = true;
-      this.firePistolGrapple();
+      this.mmbDownAt = performance.now() / 1000;
+      if (e.shiftKey) this.firePistolGrapple();
+      else this.fireFingerGun();
     } else if (e.button === 2) {
       this.rightDown = true;
       // Plain RMB toggles lock-on (focus the target under the crosshair).
@@ -4006,9 +4044,16 @@ export class SaberGame {
     if (e.button === 0) {
       this.mouseDown = false;
       this.lmbDownAt = -1;
+      if (this.rangedHoldKind) this.releaseRangedHold();
       if (this.drawMode === "slash") this.finishDraw();
     } else if (e.button === 1) {
       this.middleDown = false;
+      const held =
+        this.mmbDownAt > 0
+          ? performance.now() / 1000 - this.mmbDownAt
+          : 0;
+      this.mmbDownAt = -1;
+      if (!e.shiftKey && held >= 0.55) this.deployFireTurret();
     } else if (e.button === 2) this.rightDown = false;
   };
 
@@ -4293,7 +4338,12 @@ export class SaberGame {
 
   /** Bow LMB: draw clip scaled to the GRUDGE6 / catalog draw timer, then loose. */
   private startBowShot(): void {
-    if (this.attackTimer > 0 || this.arcaneCharge > 0 || this.pendingCasts.length) {
+    if (
+      this.attackTimer > 0 ||
+      this.rangedHoldKind ||
+      this.arcaneCharge > 0 ||
+      this.pendingCasts.length
+    ) {
       return;
     }
     this.facing = this.castAimYaw();
@@ -4304,6 +4354,9 @@ export class SaberGame {
       (arrow.releaseMs || RANGED_RELEASE_MS) / 1000,
     );
     this.pendingShot = "arrow";
+    this.rangedHoldKind = "arrow";
+    this.rangedHoldT = 0;
+    this.rangedHoldDur = drawT;
     this.rangedChargeDur = drawT;
     this.castAnimDur = drawT;
     this.castAnimT = drawT;
@@ -4318,7 +4371,12 @@ export class SaberGame {
 
   /** Staff LMB: HUD cast bar + magic_cast clip scaled to catalog / GRUDGE6 time. */
   private startArcaneCast(): void {
-    if (this.attackTimer > 0 || this.arcaneCharge > 0 || this.pendingCasts.length) {
+    if (
+      this.attackTimer > 0 ||
+      this.rangedHoldKind ||
+      this.arcaneCharge > 0 ||
+      this.pendingCasts.length
+    ) {
       return;
     }
     this.facing = this.castAimYaw();
@@ -4327,6 +4385,9 @@ export class SaberGame {
     const fallback = profile.windup + profile.active + profile.recovery;
     const castT = orb.castT > 0 ? orb.castT : fallback;
     this.pendingShot = "orb";
+    this.rangedHoldKind = "orb";
+    this.rangedHoldT = 0;
+    this.rangedHoldDur = castT;
     this.arcaneCharge = castT;
     this.rangedChargeDur = castT;
     this.castAnimDur = castT;
@@ -4341,7 +4402,7 @@ export class SaberGame {
   }
 
   /** Loose an arrow or arcane orb from the player toward the current aim. */
-  private firePlayerShot(kind: "arrow" | "orb"): void {
+  private firePlayerShot(kind: "arrow" | "orb", mods?: CastReleaseMods): void {
     // Re-read the aim at release (like releaseCast) and face the shot.
     this.facing = this.castAimYaw();
     const dir = this.facingDir();
@@ -4362,9 +4423,19 @@ export class SaberGame {
       chest.y += 1.2;
       vel.copy(chest.sub(origin).normalize());
     }
+    if (mods && mods.spreadRad > 0) {
+      const yaw =
+        (Math.random() * 2 - 1) * mods.spreadRad;
+      const c = Math.cos(yaw);
+      const s = Math.sin(yaw);
+      const x = vel.x * c - vel.z * s;
+      const z = vel.x * s + vel.z * c;
+      vel.x = x;
+      vel.z = z;
+    }
     const isOrb = kind === "orb";
     const params = rangedShot(kind);
-    const color = params.color;
+    const color = mods?.crit ? 0xffe08a : params.color;
     const length = params.length ?? (isOrb ? 2.4 : 1.6);
     const arc = params.arc ?? (isOrb ? 3.2 : 2.0);
     const gravity = params.gravity ?? 15;
@@ -4381,12 +4452,41 @@ export class SaberGame {
       velocity: vel.multiplyScalar(params.speed),
       origin: origin.clone(),
       range: params.range,
-      damage: params.damage,
+      damage: Math.round(params.damage * (mods?.damageMul ?? 1)),
       color,
       kind,
       radius: params.radius,
       gravity,
     });
+  }
+
+  /** LMB up — grade the fill on the existing cast bar, then loose. */
+  private releaseRangedHold(): void {
+    const kind = this.rangedHoldKind;
+    if (!kind || this.phase !== "playing") {
+      this.clearRangedHold();
+      return;
+    }
+    const t01 =
+      this.rangedHoldT / Math.max(0.05, this.rangedHoldDur);
+    if (t01 < 0.08) {
+      this.clearRangedHold();
+      this.setMessage("Cancel", 0.4);
+      return;
+    }
+    const grade = gradeCastRelease(t01, catalogCastAim());
+    const mods = modsForGrade(grade);
+    this.firePlayerShot(kind, mods);
+    this.setMessage(labelForGrade(grade), 0.65);
+    this.clearRangedHold();
+  }
+
+  private clearRangedHold(): void {
+    this.rangedHoldKind = null;
+    this.rangedHoldT = 0;
+    this.rangedHoldDur = 0;
+    this.pendingShot = null;
+    this.arcaneCharge = 0;
   }
 
   private tryAttack(heavy: boolean): void {
@@ -4410,10 +4510,12 @@ export class SaberGame {
       this.startBowShot();
       return;
     }
-    if (this.playerCategory === "magic") {
+    if (this.playerCategory === "magic" && !heavy) {
       this.startArcaneCast();
       return;
     }
+    // Mage Shift+LMB: caster melee — large ice fist + knockback.
+    this.fistMelee = this.playerCategory === "magic" && heavy;
     // Sword follows mouse: swings go where the reticle points. Aim assist only
     // snaps to a locked target or an enemy actually inside the camera-aim cone
     // — never to an off-screen "nearest" enemy behind the player.
@@ -4464,10 +4566,14 @@ export class SaberGame {
     this.meleeActive = profile.active * (heavy ? 1.1 : 1);
     const recover = profile.recovery * (heavy || airborne ? 1.4 : 1);
     this.attackDur = this.meleeWindup + this.meleeActive + recover;
-    this.strikeClip =
-      heavy || airborne
+    this.strikeClip = this.fistMelee
+      ? "cast"
+      : heavy || airborne
         ? "attack3"
         : ((["attack", "attack2", "attack3"] as const)[this.comboStep] ?? "attack");
+    if (this.fistMelee) {
+      void this.attachHandOverlay("hand-ice-fist", 0.55, 1.15);
+    }
     // IK-ready stance: with the weapon hand already presented (RMB held or a
     // locked focus), strikes start from optimal placement and land snappier.
     if (this.rightDown || (this.targetEnemy && this.targetEnemy.alive)) {
@@ -4553,7 +4659,13 @@ export class SaberGame {
       this.attackHitSet.add(e);
       const dmg =
         (heavy ? 52 : 22 + this.comboStep * 6) + this.combo * 2;
-      const knock = heavy ? 18 : this.attackAir ? 13 : 9;
+      const knock = this.fistMelee
+        ? 28
+        : heavy
+          ? 18
+          : this.attackAir
+            ? 13
+            : 9;
       // Knockback before damage so a killing blow ragdolls with this impulse.
       this.applyKnockback(e, flatDir, knock);
       this.damageEnemy(e, dmg, this.colorHex(this.factionColor));
@@ -4794,6 +4906,16 @@ export class SaberGame {
     // Unguarded hit: take full damage and drop the combo.
     this.health -= amount;
     this.combo = 0;
+    if (attacker) {
+      const assist = catalog.ai?.aggro.assistRadius ?? 30;
+      const peel = ALLY_AI.peelThreat;
+      for (const o of this.enemies) {
+        if (!o.alive || !o.ally || o.team !== this.playerTeam) continue;
+        if (o.inst.group.position.distanceTo(this.player.position) <= assist) {
+          o.threat.add(attacker.brainId, peel);
+        }
+      }
+    }
     this.cameraShake(0.7, 220);
     if (this.health <= 0) {
       if (this.mode === "waves" || this.mode === "factions") {
@@ -4822,7 +4944,8 @@ export class SaberGame {
     this.force = Math.min(this.maxForce, this.force + 14);
     this.setMessage("Parry!", 0.7);
     this.cameraShake(0.6, 240);
-    this.spawnClash(this.bladeContactPoint(), 0xfff0a0);
+    this.spawnClash(this.bladeContactPoint(), 0x88ddff);
+    void this.attachHandOverlay("hand-ice-fist", 0.35, 0.95);
     if (attacker) {
       // Stunned for STUN_TIME, or until the next player hit (see damageEnemy).
       attacker.stunTimer = STUN_TIME;
@@ -5002,6 +5125,10 @@ export class SaberGame {
     if (!id || !this.pendingSkill || this.pendingSkill.skill.id !== skill.id) {
       return;
     }
+    if (id === "hand-ice-fist" || id === "hand-fire-gun") {
+      void this.attachHandOverlay(id, Math.max(0.4, skill.castT ?? 0.55), 1.05);
+      return;
+    }
     const proto = await this.ensureWarcryProto(id);
     if (!proto || !this.pendingSkill || this.pendingSkill.skill.id !== skill.id) {
       return;
@@ -5042,18 +5169,162 @@ export class SaberGame {
   private async ensureWarcryProto(
     meshId: string,
   ): Promise<{ scene: THREE.Object3D; clip: THREE.AnimationClip | null; extent: number } | null> {
-    if (this.warcryProto) return this.warcryProto;
+    return this.ensureVfxMesh(meshId);
+  }
+
+  private async ensureVfxMesh(
+    meshId: string,
+  ): Promise<{ scene: THREE.Object3D; clip: THREE.AnimationClip | null; extent: number } | null> {
+    const hit = this.vfxMeshCache.get(meshId);
+    if (hit) return hit;
     const url = `${import.meta.env.BASE_URL}models/vfx/${meshId}.glb`;
     try {
       const gltf = await new GLTFLoader().loadAsync(url);
       const scene = gltf.scene;
       const clip = gltf.animations[0] ?? null;
       const extent = this.measureClipExtent(scene, clip);
-      this.warcryProto = { scene, clip, extent };
-      return this.warcryProto;
+      const proto = { scene, clip, extent };
+      this.vfxMeshCache.set(meshId, proto);
+      if (meshId === "warcry") this.warcryProto = proto;
+      return proto;
     } catch (err) {
-      console.warn("Warcry VFX failed to load; using ring fallback.", err);
+      console.warn(`VFX mesh ${meshId} failed to load.`, err);
       return null;
+    }
+  }
+
+  private async attachHandOverlay(
+    meshId: string,
+    life: number,
+    scale = 1,
+  ): Promise<void> {
+    const proto = await this.ensureVfxMesh(meshId);
+    if (!proto || this.phase !== "playing") return;
+    this.clearHandOverlay();
+    const root = proto.scene.clone(true);
+    const s = (0.62 * scale) / Math.max(proto.extent, 0.2);
+    root.scale.setScalar(s);
+    root.traverse((o) => {
+      o.frustumCulled = false;
+    });
+    this.scene.add(root);
+    this.handOverlay = { root, life, id: meshId };
+  }
+
+  private clearHandOverlay(): void {
+    if (!this.handOverlay) return;
+    this.scene.remove(this.handOverlay.root);
+    this.handOverlay = null;
+  }
+
+  private updateHandOverlay(dt: number): void {
+    const ov = this.handOverlay;
+    if (!ov) return;
+    ov.life -= dt;
+    const hand = this.playerInst
+      ? attackHandWorld(this.playerInst, this.tmpHand)
+      : null;
+    if (hand) ov.root.position.copy(hand);
+    else {
+      const p = this.player.position;
+      ov.root.position.set(p.x, p.y + 1.25, p.z);
+    }
+    ov.root.rotation.y = this.facing;
+    if (ov.life <= 0) this.clearHandOverlay();
+  }
+
+  /** MMB tap — fire from the finger-gun (large fire hand). */
+  private fireFingerGun(): void {
+    if (this.phase !== "playing") return;
+    void this.attachHandOverlay("hand-fire-gun", 0.38, 1);
+    void this.ensureFireOrbProto();
+    const dir = this.facingDir();
+    const hand = this.playerInst
+      ? attackHandWorld(this.playerInst, this.tmpHand)
+      : null;
+    const origin = (
+      hand ?? this.player.position.clone().add(new THREE.Vector3(0, 1.25, 0))
+    ).add(dir.clone().multiplyScalar(0.4));
+    const node = this.makeFireBulletNode(0xff6a1a, 2.2);
+    node.position.copy(origin);
+    this.scene.add(node);
+    this.playerShots.push({
+      node,
+      velocity: dir.clone().multiplyScalar(38),
+      origin: origin.clone(),
+      range: 28,
+      damage: 22,
+      color: 0xff6a1a,
+      kind: "fire",
+      radius: 1.4,
+      gravity: 2,
+    });
+    this.castAnimDur = 0.22;
+    this.castAnimT = 0.22;
+    this.setMessage("Finger gun", 0.5);
+  }
+
+  /** Hold MMB — plant the fire gun as a stationary turret. */
+  private deployFireTurret(): void {
+    if (this.phase !== "playing") return;
+    void this.ensureVfxMesh("hand-fire-gun").then((proto) => {
+      if (!proto || this.phase !== "playing") return;
+      const dir = this.facingDir();
+      const p = this.player.position.clone().add(dir.multiplyScalar(1.6));
+      p.y = this.groundAt(p.x, p.z) + 0.55;
+      const root = proto.scene.clone(true);
+      const s = 0.85 / Math.max(proto.extent, 0.2);
+      root.scale.setScalar(s);
+      root.position.copy(p);
+      root.rotation.y = this.facing;
+      this.scene.add(root);
+      this.fireTurrets.push({ root, cd: 0.2, life: 14 });
+      this.setMessage("Fire turret", 0.8);
+    });
+  }
+
+  private updateFireTurrets(dt: number): void {
+    for (let i = this.fireTurrets.length - 1; i >= 0; i--) {
+      const t = this.fireTurrets[i]!;
+      t.life -= dt;
+      t.cd -= dt;
+      if (t.life <= 0) {
+        this.scene.remove(t.root);
+        this.fireTurrets.splice(i, 1);
+        continue;
+      }
+      if (t.cd > 0) continue;
+      let foe: Enemy | null = null;
+      let best = 18;
+      for (const e of this.enemies) {
+        if (!this.isPlayerFoe(e)) continue;
+        const d = e.inst.group.position.distanceTo(t.root.position);
+        if (d < best) {
+          best = d;
+          foe = e;
+        }
+      }
+      if (!foe) continue;
+      t.cd = 0.55;
+      const from = t.root.position.clone();
+      const to = foe.inst.group.position.clone().setY(from.y);
+      const vel = to.sub(from);
+      if (vel.lengthSq() < 1e-4) continue;
+      vel.normalize().multiplyScalar(32);
+      const node = this.makeFireBulletNode(0xff6a1a, 1.8);
+      node.position.copy(t.root.position);
+      this.scene.add(node);
+      this.playerShots.push({
+        node,
+        velocity: vel,
+        origin: t.root.position.clone(),
+        range: 22,
+        damage: 14,
+        color: 0xff6a1a,
+        kind: "fire",
+        radius: 1.2,
+        gravity: 1,
+      });
     }
   }
 
@@ -6079,7 +6350,11 @@ export class SaberGame {
       if (struck) {
         const dir = shot.velocity.clone().setY(0);
         if (dir.lengthSq() > 1e-4) dir.normalize();
-        if (shot.kind === "orb" || shot.kind === "blade") {
+        if (
+          shot.kind === "orb" ||
+          shot.kind === "blade" ||
+          shot.kind === "fire"
+        ) {
           // Fire/blade splash: full damage to the struck enemy, falloff around it.
           const orb = rangedShot("orb") as OrbShotParams;
           this.spawnImpact(shot.node.position.clone(), "hit", shot.color, 1.6);
@@ -6229,6 +6504,10 @@ export class SaberGame {
       disposeShotNode(shot.node);
     }
     this.playerShots = [];
+    this.clearHandOverlay();
+    for (const t of this.fireTurrets) this.scene.remove(t.root);
+    this.fireTurrets = [];
+    this.fistMelee = false;
     this.arcaneCharge = 0;
     this.clearSpinDash();
     this.cancelDraw();
@@ -6296,6 +6575,8 @@ export class SaberGame {
           this.stepPhysics();
           this.updatePlayer(COMBAT_DT);
           this.updateGrapple(COMBAT_DT);
+          this.updateHandOverlay(COMBAT_DT);
+          this.updateFireTurrets(COMBAT_DT);
           this.updateCombat(COMBAT_DT);
           this.updateEnemies(COMBAT_DT);
           this.updateDebugDraw();
@@ -6309,7 +6590,7 @@ export class SaberGame {
           this.hudAccum += COMBAT_DT;
         }
         // Smooth force/cooldown bars without emitting every frame.
-        if (this.hudAccum >= 0.1) {
+        if (this.hudAccum >= 0.1 || this.rangedHoldKind) {
           this.hudAccum = 0;
           this.emit();
         }
@@ -7003,12 +7284,16 @@ export class SaberGame {
   }
 
   private updateCombat(dt: number): void {
-    if (this.arcaneCharge > 0) {
-      this.arcaneCharge -= dt;
-      if (this.arcaneCharge <= 0) {
-        this.arcaneCharge = 0;
-        this.pendingShot = null;
-        if (this.phase === "playing") this.firePlayerShot("orb");
+    if (this.rangedHoldKind) {
+      if (this.mouseDown) {
+        this.rangedHoldT = Math.min(
+          this.rangedHoldT + dt,
+          this.rangedHoldDur * 1.25,
+        );
+        const left = Math.max(0, this.rangedHoldDur - this.rangedHoldT);
+        this.arcaneCharge = this.rangedHoldKind === "orb" ? left : 0;
+        this.castAnimT = left;
+        this.castAnimDur = this.rangedHoldDur;
       }
     }
     if (this.attackTimer > 0) {
@@ -7027,10 +7312,7 @@ export class SaberGame {
       }
       if (this.attackTimer <= 0) {
         this.attackActive = false;
-        if (this.pendingShot === "arrow") {
-          this.pendingShot = null;
-          if (this.phase === "playing") this.firePlayerShot("arrow");
-        }
+        // Bow loose is LMB release (green/gold window), not auto on timer.
         // Open the chain-continue window and fire any buffered next strike.
         this.comboChainTimer = COMBO_CHAIN_WINDOW;
         if (this.bufferedAttack) {
@@ -7141,19 +7423,24 @@ export class SaberGame {
       // Target the nearest LIVING unit on another team (player + allies + rival
       // squads). `targetUnit` is null when the player is the target; damage is
       // routed through damageUnit so it hits whichever unit was struck.
-      const picked = this.nearestTargetFor(e);
+      const picked = this.nearestTargetFor(e, dt);
       const targetUnit: Enemy | null = picked === "player" ? null : picked;
       const targetPos = picked ? this.unitPos(targetUnit) : null;
 
-      // Allies with no enemy nearby loosely follow the player so they stay
-      // with the squad instead of wandering (Faction War nicety).
       let followPos: THREE.Vector3 | null = null;
-      if (
-        e.ally &&
-        (!targetPos ||
-          this.tmpV.copy(targetPos).sub(pos).setY(0).length() > 25)
-      ) {
-        followPos = this.player.position;
+      if (e.ally) {
+        const foesNear =
+          targetPos &&
+          this.tmpV.copy(targetPos).sub(pos).setY(0).length() <=
+            (catalog.ai?.aggro.detectionRadius ?? 25);
+        if (!foesNear) {
+          const living = this.enemies.filter((o) => o.alive && o.ally);
+          const slot = Math.max(0, living.indexOf(e));
+          const off = allyFormationOffset(slot, living.length, this.facing);
+          followPos = this.tmpV3.copy(this.player.position);
+          followPos.x += off.x;
+          followPos.z += off.z;
+        }
       }
 
       const aimPos = followPos ?? targetPos;
@@ -7181,7 +7468,7 @@ export class SaberGame {
       // When following (no enemy nearby), only close in while the ally is
       // outside the follow radius; once inside, idle so allies gather near the
       // player instead of perpetually shoving into them.
-      const FOLLOW_RADIUS = 6;
+      const FOLLOW_RADIUS = ALLY_AI.followHold;
       if (followPos && dist <= FOLLOW_RADIUS) {
         updateCharacterAnim(e.inst, dt, {
           speed01: 0,
@@ -7223,7 +7510,14 @@ export class SaberGame {
           mode = "seek";
           tx = e.spawnX;
           tz = e.spawnZ;
-        } else if (followPos && dist > 6) {
+        } else if (
+          !followPos &&
+          e.archetype !== "bruiser" &&
+          e.health / Math.max(1, e.maxHealth) < ALLY_AI.fleeHp &&
+          targetDist < 10
+        ) {
+          mode = "flee";
+        } else if (followPos && dist > ALLY_AI.followStart) {
           mode = "arrive";
         } else if (e.archetype === "flanker" && dist <= FLANKER_ORBIT_BAND && dist > e.desiredRange) {
           const sx = -toPlayer.z * e.strafeDir;
@@ -7814,6 +8108,9 @@ export class SaberGame {
     this.castAnimT = 0;
     this.arcaneCharge = 0;
     this.pendingShot = null;
+    this.rangedHoldKind = null;
+    this.rangedHoldT = 0;
+    this.rangedHoldDur = 0;
     this.rangedChargeDur = 0;
     this.strikeClip = "attack";
     this.telegraphs?.clear();
@@ -7945,35 +8242,41 @@ export class SaberGame {
           : undefined;
       })(),
       castBar: (() => {
+        const aim = catalogCastAim();
+        const zones = {
+          greenStart: aim.greenStart,
+          goldStart: aim.goldStart,
+          goldEnd: aim.goldEnd,
+        };
+        if (this.rangedHoldKind) {
+          const t01 = THREE.MathUtils.clamp(
+            this.rangedHoldT / Math.max(this.rangedHoldDur, 0.01),
+            0,
+            1.05,
+          );
+          const grade = gradeCastRelease(t01, aim);
+          return {
+            name:
+              this.rangedHoldKind === "orb" ? "Arcane Bolt" : "Draw",
+            t01,
+            color:
+              grade === "crit"
+                ? "#f5c542"
+                : grade === "good"
+                  ? "#5dca6a"
+                  : grade === "late"
+                    ? "#c45a3a"
+                    : "#7fd0ff",
+            grade,
+            ...zones,
+          };
+        }
         if (this.pendingSkill && !this.pendingSkill.resolved) {
           const s = this.pendingSkill;
           return {
             name: s.skill.name,
             t01: THREE.MathUtils.clamp(1 - s.t / Math.max(s.dur, 0.01), 0, 1),
             color: `#${s.skill.color.toString(16).padStart(6, "0")}`,
-          };
-        }
-        if (this.arcaneCharge > 0) {
-          const dur = this.rangedChargeDur || this.castAnimDur || ARCANE_CAST_T;
-          return {
-            name: "Arcane Bolt",
-            t01: THREE.MathUtils.clamp(1 - this.arcaneCharge / dur, 0, 1),
-            color: "#7fd0ff",
-          };
-        }
-        if (
-          this.playerCategory === "bow" &&
-          this.castAnimT > 0 &&
-          this.pendingCasts.length === 0
-        ) {
-          return {
-            name: "Draw",
-            t01: THREE.MathUtils.clamp(
-              1 - this.castAnimT / Math.max(this.castAnimDur, 0.01),
-              0,
-              1,
-            ),
-            color: "#e8c36a",
           };
         }
         const p = this.pendingCasts[this.pendingCasts.length - 1];
