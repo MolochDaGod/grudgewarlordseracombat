@@ -648,8 +648,9 @@ export function WeaponSkillStudioPanel({
         <div className="wss-body">
           <div className="wss-subhead">Casting primitives</div>
           <p className="wss-clips">
-            smoke = threejs-games rise/rotate puff (shader + color). Hits spawn
-            it. kind trail/travel + mesh smoke rides projectile / slash spline.
+            smoke / fire / flame = threejs-games particles. frost = same fire
+            shader with a blue texture — saved as frost attacks. Color picker
+            edits live; Save writes weapon-skills.json.
           </p>
           <div className="wss-row">
             {(cat.effects ?? []).map((p, i) => (

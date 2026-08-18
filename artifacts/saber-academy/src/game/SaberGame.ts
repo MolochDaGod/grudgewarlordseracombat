@@ -69,7 +69,13 @@ import {
   type SteerMode,
 } from "./brains";
 import { firstSkinned, type KitBake } from "./kitBake";
-import { SmokeCloud, findSmokePrimitive, type SmokeOpts } from "./smokePuff";
+import {
+  SmokeCloud,
+  findSmokePrimitive,
+  elementFromPrimitive,
+  inferElement,
+  type SmokeOpts,
+} from "./smokePuff";
 import { COMBAT_DT, CombatTicker } from "./combatTicker";
 import {
   HEAVY_WARP,
@@ -4531,7 +4537,10 @@ export class SaberGame {
     this.drawHealthBar(e);
     const hitAt = e.inst.group.position.clone().add(new THREE.Vector3(0, 1.5, 0));
     this.spawnSparks(hitAt, sparkColor);
-    this.spawnSmoke(hitAt, sparkColor, { style: "puff" });
+    this.spawnSmoke(hitAt, sparkColor, {
+      style: "puff",
+      element: inferElement({ color: sparkColor }),
+    });
     if (buffs) this.applyBuffsToEnemy(e, buffs);
     const mul = catalog.ai?.threat.damageMul ?? 1;
     e.threat.add("player", dmg * mul);
@@ -5479,7 +5488,11 @@ export class SaberGame {
     sprite.position.copy(pos);
     this.scene.add(sprite);
     this.flashes.push({ sprite, life: 0.3, maxLife: 0.3, grow: scale * 1.6 });
-    this.spawnSmoke(pos, color, { style: "rise", size: 0.45 + scale * 0.12 });
+    this.spawnSmoke(pos, color, {
+      style: "rise",
+      size: 0.45 + scale * 0.12,
+      element: inferElement({ texture: name, color }),
+    });
   }
 
   /** A gunner fires a tracer at the player's chest; resolved in updateVfx. */
@@ -5588,8 +5601,15 @@ export class SaberGame {
     color: number,
     extra: SmokeOpts = {},
   ): void {
-    const prim = findSmokePrimitive(catalog.effects);
-    const tint = prim?.color ? new THREE.Color(prim.color).getHex() : color;
+    const want = extra.element ?? inferElement({ color });
+    const prim = findSmokePrimitive(catalog.effects, want);
+    const el = extra.element ?? elementFromPrimitive(prim) ?? want;
+    const tint =
+      el === "frost" && !extra.color
+        ? 0x7ec8ff
+        : prim?.color
+          ? new THREE.Color(prim.color).getHex()
+          : color;
     const cloud = new SmokeCloud(pos, {
       color: extra.color ?? tint,
       size: extra.size ?? prim?.size ?? 0.65,
@@ -5598,6 +5618,7 @@ export class SaberGame {
       radius: extra.radius ?? Math.max(0.12, (prim?.aoe ?? 0.8) * 0.28),
       count: extra.count ?? 24,
       style: extra.style ?? "puff",
+      element: el,
       spline: extra.spline,
     });
     this.scene.add(cloud.mesh);
@@ -5627,9 +5648,7 @@ export class SaberGame {
     const smokeTravel = findSmokePrimitive(catalog.effects);
     const emitTrail =
       !!smokeTravel &&
-      (smokeTravel.kind === "smoke" ||
-        smokeTravel.kind === "trail" ||
-        smokeTravel.kind === "travel") &&
+      /^(smoke|fire|flame|frost|trail|travel)$/.test(smokeTravel.kind) &&
       this.smokeTrailT >= 0.08;
     if (emitTrail) this.smokeTrailT = 0;
     // Projectiles: travel, expire at range, detonate (splash) on enemy contact.
@@ -5647,6 +5666,12 @@ export class SaberGame {
           duration: 0.32,
           size: 0.32,
           count: 12,
+          element: inferElement({
+            texture: p.def.texture,
+            impact: p.def.impact,
+            color: p.def.color,
+            name: p.def.name,
+          }),
         });
       }
       const traveled = p.sprite.position.distanceTo(p.origin);
