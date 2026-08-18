@@ -15,7 +15,11 @@
 import seed from "./data/weapon-skills.json";
 import type { SkillDef, SkillKind } from "./skills";
 import { CAST_DEFS, type CastDef, type CastElement } from "./casting";
-import type { ClipName } from "./animations";
+import {
+  setClipSetOverride,
+  type AnimPackOverrides,
+  type ClipName,
+} from "./animations";
 import {
   defaultAiCatalog,
   type AiCatalog,
@@ -86,6 +90,10 @@ export interface WeaponSkillCatalog {
   effects?: EffectPrimitive[];
   /** Grudge AI / Yuka rings + threat (grudge-ai-brains). */
   ai?: AiCatalog;
+  /** uMMORPG pack overlay (relative FBX under assets/animations). */
+  animPacks?: AnimPackOverrides;
+  /** Movement Motivation (free-flow standoff). */
+  mm?: { playerMm: number };
 }
 
 // Deep clone so the mutable runtime copy never aliases the frozen import.
@@ -112,6 +120,9 @@ export function applyCatalog(next: WeaponSkillCatalog): void {
   catalog.linear = clone(next.linear ?? { global: { ...DEFAULT_LINEAR_GLOBAL } });
   catalog.effects = clone(next.effects ?? []);
   catalog.ai = clone(next.ai ?? defaultAiCatalog());
+  catalog.animPacks = clone(next.animPacks ?? {});
+  catalog.mm = clone(next.mm ?? { playerMm: 40 });
+  setClipSetOverride(catalog.animPacks);
   syncCastDefs();
 }
 
@@ -202,6 +213,7 @@ export const SPRITE_EFFECTS: EffectEntry[] = [
   { id: "frostbolt", label: "Frost Bolt", source: "sprite" },
   { id: "frozen", label: "Frozen Shatter", source: "sprite" },
   { id: "arcanebolt", label: "Arcane Bolt", source: "sprite" },
+  { id: "heal", label: "Heal Bloom", source: "sprite" },
 ];
 
 /**
@@ -209,12 +221,12 @@ export const SPRITE_EFFECTS: EffectEntry[] = [
  * CastElement whose phase-machine (travel/impact/hold) drives the visuals.
  */
 export const CAST_EFFECTS: EffectEntry[] = [
-  { id: "fire", label: "Fire — Cinder Fall (arcing meteor)", source: "cast" },
-  { id: "ice", label: "Ice — Frost Lance (crystal field)", source: "cast" },
-  { id: "thunder", label: "Thunder — Storm Lance (instant bolt)", source: "cast" },
-  { id: "nova", label: "Nova — Nova Beam (held column)", source: "cast" },
-  { id: "snare", label: "Snare — Voltaic Snare (zone cage)", source: "cast" },
-  { id: "volley", label: "Volley — Rain of Arrows (zone barrage)", source: "cast" },
+  { id: "fire", label: "Fire bend — Cinder Fall (meteor + fire puff)", source: "cast" },
+  { id: "ice", label: "Water/ice bend — Frost Lance (crystal + frost puff)", source: "cast" },
+  { id: "thunder", label: "Air/storm bend — Storm Lance (bolt)", source: "cast" },
+  { id: "nova", label: "Spirit beam — Nova (held column)", source: "cast" },
+  { id: "snare", label: "Earth bind — Voltaic Snare (zone)", source: "cast" },
+  { id: "volley", label: "Sky barrage — Rain of Arrows", source: "cast" },
 ];
 
 /** Skill kinds selectable in the Studio (drives spawn logic in SaberGame). */
@@ -223,6 +235,7 @@ export const SKILL_KINDS: SkillKind[] = [
   "nova",
   "dash",
   "boomerang",
+  "heal",
 ];
 
 /** Cast element ids selectable in the Studio. */
@@ -248,6 +261,9 @@ export const CLIP_NAMES: ClipName[] = [
   "attack2",
   "attack3",
   "cast",
+  "cast2",
+  "cast3",
+  "heal",
   "guard",
   "hit",
   "death",
@@ -266,6 +282,9 @@ if (!catalog.effects || catalog.effects.length === 0) {
   ];
 }
 if (!catalog.ai) catalog.ai = defaultAiCatalog();
+if (!catalog.mm) catalog.mm = { playerMm: 40 };
+if (!catalog.animPacks) catalog.animPacks = {};
+setClipSetOverride(catalog.animPacks);
 
 // Keep CAST_DEFS aligned with the seed on first import (idempotent).
 syncCastDefs();

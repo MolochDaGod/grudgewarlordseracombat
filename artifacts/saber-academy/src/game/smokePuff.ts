@@ -50,7 +50,7 @@ const SMOKE_FRAG = /* glsl */ `
 
 export type SmokeStyle = "puff" | "rise" | "trail" | "spline";
 /** threejs-games fire/flame + blue-texture frost (saved ice attacks). */
-export type ParticleElement = "smoke" | "fire" | "flame" | "frost";
+export type ParticleElement = "smoke" | "fire" | "flame" | "frost" | "heal";
 
 export interface SmokeOpts {
   color?: number | string;
@@ -73,9 +73,10 @@ export const ELEMENT_DEFAULTS: Record<
   fire: { color: 0xff6622, hot: 0.85, additive: true, rise: 1.15 },
   flame: { color: 0xffaa33, hot: 1, additive: true, rise: 1.55 },
   frost: { color: 0x7ec8ff, hot: 0.35, additive: true, rise: 0.85 },
+  heal: { color: 0xb8ff88, hot: 0.7, additive: true, rise: 1.35 },
 };
 
-const ELEMENT_KEYS: ParticleElement[] = ["smoke", "fire", "flame", "frost"];
+const ELEMENT_KEYS: ParticleElement[] = ["smoke", "fire", "flame", "frost", "heal"];
 
 export function parseElement(v: string | undefined): ParticleElement | null {
   if (!v) return null;
@@ -252,6 +253,7 @@ export function inferElement(hint: {
   name?: string;
 }): ParticleElement {
   const blob = `${hint.texture ?? ""} ${hint.impact ?? ""} ${hint.element ?? ""} ${hint.name ?? ""}`.toLowerCase();
+  if (/heal|holy|nature|restore|mend/.test(blob)) return "heal";
   if (/frost|frozen|ice|glacier/.test(blob)) return "frost";
   if (/flame|ember/.test(blob)) return "flame";
   if (/fire|cinder|flame.?strike|meteor/.test(blob)) return "fire";

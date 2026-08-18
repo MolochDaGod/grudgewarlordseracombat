@@ -18,6 +18,11 @@ import {
   type EffectPrimitive,
 } from "@/game/effectPrefab";
 import { defaultAiCatalog, type BrainBehavior } from "@/game/brains";
+import {
+  PACK_FILE_OPTIONS,
+  defaultClipRel,
+  type WeaponCategory,
+} from "@/game/animations";
 import { studioSaveAvailable } from "@/game/studio";
 import {
   BUFF_TYPES,
@@ -38,7 +43,15 @@ import {
  * to the game files via the dev-only endpoint.
  */
 
-type Tab = "skill" | "cast" | "ranged" | "linear" | "effects" | "brains" | "debug";
+type Tab =
+  | "skill"
+  | "cast"
+  | "ranged"
+  | "linear"
+  | "effects"
+  | "anims"
+  | "brains"
+  | "debug";
 
 // ---- Buff/Debuff sub-editor ------------------------------------------------
 
@@ -179,6 +192,7 @@ export function WeaponSkillStudioPanel({
   const [aiFocus, setAiFocus] = useState<string | null>(null);
   const [drawRings, setDrawRings] = useState(false);
   const [drawSkel, setDrawSkel] = useState(false);
+  const [animPack, setAnimPack] = useState<WeaponCategory>("magic");
   const [classId] = useState<string>(() => game.studioPlayerClass());
   const [skillIdx, setSkillIdx] = useState(0);
   const [castIdx, setCastIdx] = useState(0);
@@ -386,6 +400,9 @@ export function WeaponSkillStudioPanel({
         <button className={tab === "effects" ? "on" : ""} onClick={() => setTab("effects")}>
           Effects
         </button>
+        <button className={tab === "anims" ? "on" : ""} onClick={() => setTab("anims")}>
+          Anims / MM
+        </button>
         <button className={tab === "brains" ? "on" : ""} onClick={() => setTab("brains")}>
           AI / Yuka
         </button>
@@ -494,6 +511,11 @@ export function WeaponSkillStudioPanel({
 
       {tab === "cast" && cast && (
         <div className="wss-body">
+          <p className="wss-clips">
+            Elemental / bend designs: fire puff + meteor · ice frost lance ·
+            thunder air bolt · snare earth zone. Mage clips: magic_cast /
+            magic_cast_2h (Toon) or 2H Magic Attack 01 (uMMORPG).
+          </p>
           <div className="wss-row">
             {cat.elementalCasts.map((c, i) => (
               <button
@@ -648,9 +670,8 @@ export function WeaponSkillStudioPanel({
         <div className="wss-body">
           <div className="wss-subhead">Casting primitives</div>
           <p className="wss-clips">
-            smoke / fire / flame = threejs-games particles. frost = same fire
-            shader with a blue texture — saved as frost attacks. Color picker
-            edits live; Save writes weapon-skills.json.
+            smoke / fire / flame / frost / heal. frost = blue fire. heal =
+            gold-green bloom. Color picker live; Save writes catalog.
           </p>
           <div className="wss-row">
             {(cat.effects ?? []).map((p, i) => (
@@ -736,6 +757,70 @@ export function WeaponSkillStudioPanel({
               {num("Size", cat.effects[effectIdx].size, (v) => editEffect(effectIdx, { size: v }), 0.05)}
               {num("Duration (s)", cat.effects[effectIdx].duration ?? 0.6, (v) => editEffect(effectIdx, { duration: v }), 0.05)}
             </>
+          )}
+        </div>
+      )}
+
+      {tab === "anims" && (
+        <div className="wss-body">
+          <div className="wss-subhead">uMMORPG / Mixamo packs (CDN)</div>
+          <p className="wss-clips">
+            blade = sword_shield · magic = 2H cast · bow = longbow. Dropdowns
+            are files already wired on assets.grudge-studio.com/animations.
+            Toon kits still bind magic_cast / bow_shot / sword_attack_*.
+          </p>
+          <div className="wss-row">
+            {(["blade", "magic", "bow"] as WeaponCategory[]).map((p) => (
+              <button key={p} className={animPack === p ? "on" : ""} onClick={() => setAnimPack(p)}>
+                {p}
+              </button>
+            ))}
+          </div>
+          {CLIP_NAMES.map((role) => {
+            const files = PACK_FILE_OPTIONS[animPack];
+            const current =
+              cat.animPacks?.[animPack]?.[role] ?? defaultClipRel(animPack, role);
+            return (
+              <label className="wss-field" key={role}>
+                <span>{role}</span>
+                <select
+                  value={current}
+                  onChange={(e) =>
+                    setCat((c) => {
+                      const next = structuredClone(c);
+                      next.animPacks = next.animPacks ?? {};
+                      next.animPacks[animPack] = {
+                        ...(next.animPacks[animPack] ?? {}),
+                        [role]: e.target.value,
+                      };
+                      return next;
+                    })
+                  }
+                >
+                  {files.map((f) => (
+                    <option key={f} value={f}>
+                      {f.split("/").pop()}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          })}
+          <div className="wss-subhead">MM free-flow (lock target + WASD)</div>
+          <p className="wss-clips">
+            +100 close · 0 orbit · −100 kite. Biases movement when a foe is
+            TAB-locked. Enemies already use the same standoff table.
+          </p>
+          {num(
+            "Player MM",
+            cat.mm?.playerMm ?? 40,
+            (v) =>
+              setCat((c) => {
+                const next = structuredClone(c);
+                next.mm = { playerMm: v };
+                return next;
+              }),
+            5,
           )}
         </div>
       )}
