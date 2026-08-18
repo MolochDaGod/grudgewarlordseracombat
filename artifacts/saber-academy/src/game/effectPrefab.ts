@@ -12,7 +12,10 @@ export type EffectKind =
   | "residual"
   | "decal"
   | "aura"
-  | "smoke";
+  | "smoke"
+  | "fire"
+  | "flame"
+  | "frost";
 
 export type EffectAttach =
   | "R_hand"
@@ -43,6 +46,9 @@ export const EFFECT_KINDS: EffectKind[] = [
   "decal",
   "aura",
   "smoke",
+  "fire",
+  "flame",
+  "frost",
 ];
 
 export const EFFECT_ATTACH: EffectAttach[] = [
@@ -80,6 +86,9 @@ export const EFFECT_MESH_IDS = [
   "sphering",
   "warcry",
   "smoke",
+  "fire",
+  "flame",
+  "frost",
 ] as const;
 
 export interface LinearGlobal {
@@ -136,16 +145,23 @@ export const ELEMENT_LINEAR: Record<string, LinearCastExtras["linearId"]> = {
 };
 
 export function defaultPrimitive(kind: EffectKind = "travel"): EffectPrimitive {
-  if (kind === "smoke") {
+  if (kind === "smoke" || kind === "fire" || kind === "flame" || kind === "frost") {
+    const presets: Record<string, { color: string; size: number; intensity: number }> = {
+      smoke: { color: "#8899aa", size: 0.7, intensity: 0.9 },
+      fire: { color: "#ff6622", size: 0.85, intensity: 1 },
+      flame: { color: "#ffaa33", size: 0.55, intensity: 1.1 },
+      frost: { color: "#7ec8ff", size: 0.75, intensity: 1 },
+    };
+    const p = presets[kind]!;
     return {
-      kind: "smoke",
-      intensity: 0.9,
+      kind,
+      intensity: p.intensity,
       aoe: 0.8,
       speed: 2.4,
-      size: 0.7,
-      color: "#8899aa",
-      meshId: "smoke",
-      duration: 0.7,
+      size: p.size,
+      color: p.color,
+      meshId: kind,
+      duration: kind === "flame" ? 0.45 : 0.7,
       attach: "root",
     };
   }

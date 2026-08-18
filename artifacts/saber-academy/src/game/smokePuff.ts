@@ -33,6 +33,7 @@ const SMOKE_VERT = /* glsl */ `
 const SMOKE_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform float uOpacity;
+  uniform float uHot;
   varying float vSeed;
   void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
@@ -42,11 +43,14 @@ const SMOKE_FRAG = /* glsl */ `
     float mottled = 0.75 + 0.25 * fract(sin(vSeed * 91.17) * 43758.5453);
     float a = soft * uOpacity * mottled;
     if (a < 0.02) discard;
-    gl_FragColor = vec4(uColor * (0.55 + 0.45 * soft), a);
+    vec3 core = mix(uColor, vec3(1.0), uHot * soft * 0.55);
+    gl_FragColor = vec4(core * (0.55 + 0.45 * soft), a);
   }
 `;
 
 export type SmokeStyle = "puff" | "rise" | "trail" | "spline";
+/** threejs-games fire/flame + blue-texture frost (saved ice attacks). */
+export type ParticleElement = "smoke" | "fire" | "flame" | "frost";
 
 export interface SmokeOpts {
   color?: number | string;
@@ -56,9 +60,30 @@ export interface SmokeOpts {
   intensity?: number;
   radius?: number;
   style?: SmokeStyle;
+  element?: ParticleElement;
   /** World points for CatmullRom travel (trail / spline). */
   spline?: THREE.Vector3[];
 }
+
+export const ELEMENT_DEFAULTS: Record<
+  ParticleElement,
+  { color: number; hot: number; additive: boolean; rise: number }
+> = {
+  smoke: { color: 0x999999, hot: 0, additive: false, rise: 1 },
+  fire: { color: 0xff6622, hot: 0.85, additive: true, rise: 1.15 },
+  flame: { color: 0xffaa33, hot: 1, additive: true, rise: 1.55 },
+  frost: { color: 0x7ec8ff, hot: 0.35, additive: true, rise: 0.85 },
+};
+
+const ELEMENT_KEYS: ParticleElement[] = ["smoke", "fire", "flame", "frost"];
+
+export function parseElement(v: string | undefined): ParticleElement | null {
+  if (!v) return null;
+  return ELEMENT_KEYS.includes(v as ParticleElement) ? (v as ParticleElement) : null;
+}
+
+/** Blue texture edit of fire/flame — frost attacks. */
+export const FROST_COLOR = 0x7ec8ff;
 
 export class SmokeCloud {
   readonly mesh: THREE.Points;
@@ -78,10 +103,13 @@ export class SmokeCloud {
     this.count = count;
     this.maxLife = Math.max(0.2, opts.duration ?? 0.7);
     this.style = opts.style ?? "puff";
+    const element = opts.element ?? "smoke";
+    const preset = ELEMENT_DEFAULTS[element];
     const radius = Math.max(0.04, opts.radius ?? 0.22);
-    const color = new THREE.Color(opts.color ?? 0x999999);
+    const color = new THREE.Color(opts.color ?? preset.color);
     const intensity = opts.intensity ?? 1;
     const sizePx = Math.max(8, (opts.size ?? 0.55) * 42);
+    const rise = preset.rise;
 
     const positions = new Float32Array(count * 3);
     const seeds = new Float32Array(count);
@@ -94,7 +122,7 @@ export class SmokeCloud {
       positions[i * 3 + 1] = (Math.random() - 0.15) * radius;
       positions[i * 3 + 2] = Math.sin(a) * r;
       seeds[i] = Math.random();
-      velocities[i] = 0.6 + Math.random() * 1.8;
+      velocities[i] = (0.6 + Math.random() * 1.8) * rise;
     }
     this.positions = positions;
     this.velocities = velocities;
@@ -112,12 +140,13 @@ export class SmokeCloud {
         uOpacity: { value: 0.55 * intensity },
         uSize: { value: sizePx },
         uTime: { value: 0 },
+        uHot: { value: preset.hot },
       },
       vertexShader: SMOKE_VERT,
       fragmentShader: SMOKE_FRAG,
       transparent: true,
       depthWrite: false,
-      blending: THREE.NormalBlending,
+      blending: preset.additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
 
     this.mesh = new THREE.Points(this.geometry, this.material);
@@ -181,9 +210,58 @@ export class SmokeCloud {
   }
 }
 
-/** Catalog helper: first smoke primitive (kind or meshId). */
 export function findSmokePrimitive(
-  effects: { kind: string; meshId?: string; color?: string; size?: number; duration?: number; intensity?: number; aoe?: number; speed?: number }[] | undefined,
+  effects:
+    | {
+        kind: string;
+        meshId?: string;
+        color?: string;
+        size?: number;
+        duration?: number;
+        intensity?: number;
+        aoe?: number;
+        speed?: number;
+      }[]
+    | undefined,
+  prefer?: ParticleElement,
 ) {
-  return effects?.find((e) => e.kind === "smoke" || e.meshId === "smoke");
+  if (!effects?.length) return undefined;
+  if (prefer) {
+    const hit = effects.find(
+      (e) => e.kind === prefer || e.meshId === prefer,
+    );
+    if (hit) return hit;
+  }
+  return effects.find((e) => parseElement(e.kind) || parseElement(e.meshId));
+}
+
+export function elementFromPrimitive(
+  prim: { kind?: string; meshId?: string } | undefined,
+): ParticleElement {
+  return (
+    parseElement(prim?.kind) ?? parseElement(prim?.meshId) ?? "smoke"
+  );
+}
+
+/** Map skill texture / element / color to fire · flame · frost · smoke. */
+export function inferElement(hint: {
+  texture?: string;
+  impact?: string;
+  element?: string;
+  color?: number;
+  name?: string;
+}): ParticleElement {
+  const blob = `${hint.texture ?? ""} ${hint.impact ?? ""} ${hint.element ?? ""} ${hint.name ?? ""}`.toLowerCase();
+  if (/frost|frozen|ice|glacier/.test(blob)) return "frost";
+  if (/flame|ember/.test(blob)) return "flame";
+  if (/fire|cinder|flame.?strike|meteor/.test(blob)) return "fire";
+  const c = hint.color;
+  if (c !== undefined) {
+    const r = (c >> 16) & 255;
+    const g = (c >> 8) & 255;
+    const b = c & 255;
+    if (b > r + 20 && b > 120) return "frost";
+    if (r > 180 && r > b + 40) return "fire";
+  }
+  return "smoke";
 }
