@@ -94,6 +94,8 @@ export interface WeaponSkillCatalog {
   animPacks?: AnimPackOverrides;
   /** Movement Motivation (free-flow standoff). */
   mm?: { playerMm: number };
+  /** Avatar bend design (playground → existing casts). */
+  bending?: { selected: "fire" | "water" | "earth" | "wind" };
 }
 
 // Deep clone so the mutable runtime copy never aliases the frozen import.
@@ -122,6 +124,7 @@ export function applyCatalog(next: WeaponSkillCatalog): void {
   catalog.ai = clone(next.ai ?? defaultAiCatalog());
   catalog.animPacks = clone(next.animPacks ?? {});
   catalog.mm = clone(next.mm ?? { playerMm: 40 });
+  catalog.bending = clone(next.bending ?? { selected: "fire" });
   setClipSetOverride(catalog.animPacks);
   syncCastDefs();
 }

@@ -80,5 +80,6 @@
     "spellTelegraphSec": 1.6
   },
   "mm": { "playerMm": 40 },
-  "animPacks": {}
+  "animPacks": {},
+  "bending": { "selected": "fire" }
 }
