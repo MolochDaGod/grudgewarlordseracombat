@@ -23,6 +23,7 @@ import {
   defaultClipRel,
   type WeaponCategory,
 } from "@/game/animations";
+import { applyBendDesign, BEND_DESIGNS, BEND_IDS } from "@/game/bendingDesign";
 import { studioSaveAvailable } from "@/game/studio";
 import {
   BUFF_TYPES,
@@ -50,6 +51,7 @@ type Tab =
   | "linear"
   | "effects"
   | "anims"
+  | "bend"
   | "brains"
   | "debug";
 
@@ -402,6 +404,9 @@ export function WeaponSkillStudioPanel({
         </button>
         <button className={tab === "anims" ? "on" : ""} onClick={() => setTab("anims")}>
           Anims / MM
+        </button>
+        <button className={tab === "bend" ? "on" : ""} onClick={() => setTab("bend")}>
+          Bend
         </button>
         <button className={tab === "brains" ? "on" : ""} onClick={() => setTab("brains")}>
           AI / Yuka
@@ -822,6 +827,103 @@ export function WeaponSkillStudioPanel({
               }),
             5,
           )}
+        </div>
+      )}
+
+      {tab === "bend" && (
+        <div className="wss-body">
+          <div className="wss-subhead">AvatarCasting designs</div>
+          <p className="wss-clips">
+            Playground{" "}
+            <a
+              href="https://github.com/MolochDaGod/AvatarCastingAbilitiesThreeJS"
+              target="_blank"
+              rel="noreferrer"
+            >
+              AvatarCastingAbilitiesThreeJS
+            </a>
+            . Applies Fire/Water/Earth/Air onto existing keys 1–3 and 5. No
+            windsurf, no second volume engine.
+          </p>
+          <div className="wss-row">
+            {BEND_IDS.map((id) => {
+              const d = BEND_DESIGNS[id];
+              const on = (cat.bending?.selected ?? "fire") === id;
+              return (
+                <button
+                  key={id}
+                  className={on ? "on" : ""}
+                  style={{ borderColor: d.accent }}
+                  onClick={() => setCat((c) => applyBendDesign(c, id))}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+          {(() => {
+            const id = cat.bending?.selected ?? "fire";
+            const d = BEND_DESIGNS[id];
+            const cast = cat.elementalCasts.find((c) => c.element === d.combatElement);
+            if (!cast) return null;
+            return (
+              <>
+                <div className="wss-clips">{d.hint}</div>
+                <div className="wss-clips">
+                  drives {d.combatElement} · puff {d.puff} · clip {d.clip} ·
+                  flight {d.flightHeight} m
+                </div>
+                <label className="wss-field">
+                  <span>Color</span>
+                  <input
+                    type="color"
+                    value={"#" + (cast.color >>> 0).toString(16).padStart(6, "0")}
+                    onChange={(e) => {
+                      const hex = parseInt(e.target.value.slice(1), 16);
+                      setCat((c) => {
+                        const next = structuredClone(c);
+                        const row = next.elementalCasts.find(
+                          (x) => x.element === d.combatElement,
+                        );
+                        if (row) row.color = hex;
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
+                {num(
+                  "Speed",
+                  cast.speed,
+                  (v) => {
+                    setCat((c) => {
+                      const next = structuredClone(c);
+                      const row = next.elementalCasts.find(
+                        (x) => x.element === d.combatElement,
+                      );
+                      if (row) row.speed = v;
+                      return next;
+                    });
+                  },
+                  0.5,
+                )}
+                {num(
+                  "Radius (m)",
+                  cast.radius,
+                  (v) => {
+                    setCat((c) => {
+                      const next = structuredClone(c);
+                      const row = next.elementalCasts.find(
+                        (x) => x.element === d.combatElement,
+                      );
+                      if (row) row.radius = v;
+                      return next;
+                    });
+                  },
+                  0.1,
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
