@@ -346,6 +346,7 @@ export function WeaponSkillStudioPanel({
 
       <div className="wss-dummies">
         <button onClick={() => game.studioSpawnDummies(3)}>Spawn Dummies</button>
+        <button onClick={() => game.sandboxSpawnKits()}>Kit ring (24)</button>
         <button onClick={() => game.studioClearDummies()}>Clear</button>
       </div>
 

@@ -67,6 +67,11 @@ import {
   aggroState,
   type SteerMode,
 } from "./brains";
+import { COMBAT_DT, CombatTicker } from "./combatTicker";
+import {
+  WARLORDS_TEST_LOADOUTS,
+  type WarlordsLoadout,
+} from "./warlordsLoadout";
 
 export type GamePhase = "menu" | "loading" | "playing" | "gameover" | "victory";
 
@@ -864,6 +869,7 @@ export class SaberGame {
 
   /** Fixed-step simulation accumulator (deterministic gameplay/animation). */
   private simAccum = 0;
+  private readonly ticker = new CombatTicker();
 
   /** RTS-style ground telegraphs (uploaded warning/arrow indicator props). */
   private telegraphs: TelegraphSystem | null = null;
@@ -1386,6 +1392,52 @@ export class SaberGame {
     this.emit();
   }
 
+  /** Ring of every race × knight/warrior/ranger/mage kit for AI / mixer learning. */
+  sandboxSpawnKits(): void {
+    if (this.phase !== "playing" || (this.mode !== "sandbox" && this.mode !== "animtest"))
+      return;
+    void this.spawnKitRing();
+  }
+
+  private async spawnKitRing(): Promise<void> {
+    const list = WARLORDS_TEST_LOADOUTS;
+    for (let i = 0; i < list.length; i++) {
+      const L = list[i];
+      try {
+        const tmpl = await loadToonRtsTemplate(toonRaceKitUrl(L.race));
+        const ang = (i / list.length) * Math.PI * 2;
+        const pos = new THREE.Vector3(Math.cos(ang) * 20, 0, Math.sin(ang) * 20);
+        pos.y = this.groundAt(pos.x, pos.z);
+        const inst = this.makeToon(tmpl, 0x8aa0c0, L.weapon, null, {
+          raceId: L.race,
+          weapon: L.weapon,
+          classId: L.id.split("-")[1],
+        });
+        this.finishEnemySpawn(
+          inst,
+          {
+            template: tmpl.scene,
+            clips: null,
+            color: 0x8aa0c0,
+            weapon: L.weapon,
+            category: weaponCategory(L.weapon),
+            rig: "toonrts",
+            toonTemplate: tmpl,
+            raceId: L.race,
+            label: L.label,
+          },
+          pos,
+          70,
+          3.0,
+          /bow|staff/.test(L.weapon),
+        );
+      } catch (err) {
+        console.warn(`kit spawn failed: ${L.id}`, err);
+      }
+    }
+    this.emit();
+  }
+
   /** Remove all enemies from the arena (no score). */
   sandboxClear(): void {
     for (const e of this.enemies) {
@@ -1880,10 +1932,8 @@ export class SaberGame {
           category,
           "toonrts",
         );
-        this.playerAnimMode = library
-          ? `Skeletal (Toon + ${category} library retarget)`
-          : "Skeletal (Toon RTS, embedded clips)";
-        return instantiateToonRts(template, color, player.weapon, library);
+        this.playerAnimMode = "Skeletal (Toon Warlords pack, one mixer)";
+        return this.makeToon(template, color, player.weapon, library, player);
       } catch {
         this.playerAnimMode = "Capsule (Toon RTS model load failed)";
         return instantiateCapsule(0x2d3550, 0xe6c8a0, color);
@@ -1928,6 +1978,44 @@ export class SaberGame {
       this.playerAnimMode = "Capsule (model load failed)";
       return instantiateCapsule(0x2d3550, 0xe6c8a0, color);
     }
+  }
+
+  private raceKey(id: string): WarlordsLoadout["race"] {
+    const n = id.toLowerCase().replace(/\s+/g, "");
+    if (n.includes("barb")) return "barbarian";
+    if (n.includes("elf")) return "highelf";
+    if (n.includes("dwarf")) return "dwarf";
+    if (n.includes("orc")) return "orc";
+    if (n.includes("undead") || n === "ud") return "undead";
+    return "human";
+  }
+
+  private loadoutFor(h: { raceId?: string; classId?: string; weapon: string }): WarlordsLoadout | undefined {
+    const race = this.raceKey(h.raceId ?? "human");
+    const w = (h.weapon ?? "").toLowerCase();
+    const c = (h.classId ?? "").toLowerCase();
+    const role =
+      /staff|mage|wand/.test(w) || c.includes("mage")
+        ? "mage"
+        : /bow|ranger/.test(w) || c.includes("ranger")
+          ? "ranger"
+          : /great/.test(w) || c.includes("warrior")
+            ? "warrior"
+            : "knight";
+    return WARLORDS_TEST_LOADOUTS.find((l) => l.id === `${race}-${role}`);
+  }
+
+  private makeToon(
+    template: ToonRtsTemplate,
+    color: number,
+    weapon: string,
+    clips: Bip001Clips | null | undefined,
+    hero?: { raceId?: string; classId?: string; weapon: string },
+  ) {
+    const loadout = hero ? this.loadoutFor(hero) : this.loadoutFor({ weapon });
+    const inst = instantiateToonRts(template, color, weapon, clips, loadout);
+    inst.terrainAt = (x, z) => this.groundAt(x, z);
+    return inst;
   }
 
   /** Load Mixamo sources for a category once (cached); null if unavailable. */
@@ -2132,6 +2220,7 @@ export class SaberGame {
             toonTemplate,
             label: u.label,
             archetype: u.archetype,
+            raceId: u.race,
           };
         } catch (err) {
           console.warn(`Grudge Gladiators: archetype "${u.label}" failed to load.`, err);
@@ -3101,7 +3190,7 @@ export class SaberGame {
     }
     let inst: CharacterInstance;
     if (def?.rig === "toonrts" && def.toonTemplate) {
-      inst = instantiateToonRts(def.toonTemplate, color, def.weapon, def.clips);
+      inst = this.makeToon(def.toonTemplate, color, def.weapon, def.clips, def);
     } else if (def?.template && def.clips) {
       inst =
         def.rig === "meshy"
@@ -3183,7 +3272,7 @@ export class SaberGame {
     // Use the archetype's own accent unless overridden by a faction color (e.g.
     // Faction War squads tint the caster's health bar to their squad color).
     const accentColor = factionColor ?? def.color;
-    const inst = instantiateToonRts(def.toonTemplate, accentColor, def.weapon, def.clips);
+    const inst = this.makeToon(def.toonTemplate, accentColor, def.weapon, def.clips, def);
     let hp = baseHp;
     let speed = 3.0 + this.wave * 0.3;
     const ranged = archetype === "caster" || def.category !== "blade";
@@ -3225,7 +3314,7 @@ export class SaberGame {
     let def: EnemyDef | null = null;
     if (useRanged && toonRangedDefs.length > 0) {
       def = toonRangedDefs[Math.floor(Math.random() * toonRangedDefs.length)];
-      inst = instantiateToonRts(def.toonTemplate!, def.color, def.weapon, def.clips);
+      inst = this.makeToon(def.toonTemplate!, def.color, def.weapon, def.clips, def);
     } else if (useRanged && this.gunnerDef) {
       inst = instantiateHeavy(this.gunnerDef.template, this.gunnerDef.library, 0xffb347);
     } else {
@@ -3235,7 +3324,7 @@ export class SaberGame {
       const pool = meleeDefs.length > 0 ? meleeDefs : this.enemyDefs;
       def = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null;
       if (def?.rig === "toonrts" && def.toonTemplate) {
-        inst = instantiateToonRts(def.toonTemplate, def.color, def.weapon, def.clips);
+        inst = this.makeToon(def.toonTemplate, def.color, def.weapon, def.clips, def);
       } else if (def?.template && def.clips) {
         inst =
           def.rig === "meshy"
@@ -5375,25 +5464,22 @@ export class SaberGame {
     // stop the render below -- the loop keeps drawing and degrades to math.
     try {
       if (this.phase === "playing") {
-        // Deterministic fixed-step simulation: gameplay, combat timing, and
-        // skeletal animation all advance in exact 1/120s slices regardless of
-        // display refresh rate, so swings, lunges, and cast wind-ups play out
-        // identically on every machine (hit-stop still scales dt above).
-        const STEP = 1 / 120;
-        this.simAccum = Math.min(this.simAccum + dt, STEP * 10);
-        while (this.simAccum >= STEP) {
-          this.simAccum -= STEP;
+        // Deterministic combat ticker: mixer + hits + AI on COMBAT_DT only.
+        const steps = this.ticker.steps(dt);
+        this.simAccum = this.ticker.accum;
+        for (let i = 0; i < steps; i++) {
           this.stepPhysics();
-          this.updatePlayer(STEP);
-          this.updateGrapple(STEP);
-          this.updateCombat(STEP);
-          this.updateEnemies(STEP);
-          this.updateTimers(STEP);
-          this.updateAnimTest(STEP);
-          this.updatePendingCasts(STEP);
-          this.telegraphs?.update(STEP);
-          this.updateVfx(STEP);
-          this.hudAccum += STEP;
+          this.updatePlayer(COMBAT_DT);
+          this.updateGrapple(COMBAT_DT);
+          this.updateCombat(COMBAT_DT);
+          this.updateEnemies(COMBAT_DT);
+          this.updateTimers(COMBAT_DT);
+          this.updateAnimTest(COMBAT_DT);
+          this.updatePendingCasts(COMBAT_DT);
+          this.telegraphs?.update(COMBAT_DT);
+          this.updateVfx(COMBAT_DT);
+          this.updatePlayerAnim(COMBAT_DT);
+          this.hudAccum += COMBAT_DT;
         }
         // Smooth force/cooldown bars without emitting every frame.
         if (this.hudAccum >= 0.1) {
@@ -5406,7 +5492,6 @@ export class SaberGame {
       // so bodies never freeze mid-air and always finish their cleanup timer.
       this.updateCorpses(dt);
       this.updateSparks(dt);
-      this.updatePlayerAnim(dt);
 
       this.updateCamera(dt);
 
@@ -6544,7 +6629,10 @@ export class SaberGame {
       const s = animStateForClip(this.forcedClip);
       this.lastSpeed01 = s.speed01;
       this.lastStrafe = s.strafe;
-      updateCharacterAnim(this.playerInst, dt, s);
+      updateCharacterAnim(this.playerInst, dt, {
+        ...s,
+        groundAt: (x, z) => this.groundAt(x, z),
+      });
       return;
     }
     const horiz = Math.hypot(this.velocity.x, this.velocity.z);
@@ -6571,6 +6659,7 @@ export class SaberGame {
       castDur: this.castAnimDur,
       guard: this.blocking,
       hitFlash: 0,
+      groundAt: (x, z) => this.groundAt(x, z),
     });
   }
 
@@ -6851,6 +6940,8 @@ export class SaberGame {
     this.pendingCasts = [];
     this.castCooldowns = CAST_DEFS.map(() => 0);
     this.simAccum = 0;
+    this.ticker.accum = 0;
+    this.ticker.queue.length = 0;
     this.softTarget = null;
     if (this.softMarker) this.softMarker.visible = false;
     this.cooldowns = this.skills.map(() => 0);

@@ -589,6 +589,9 @@ export default function GameCanvas({ admin = false }: { admin?: boolean }) {
                 <button onClick={() => gameRef.current?.sandboxSpawn(3)}>
                   Spawn Dummies
                 </button>
+                <button onClick={() => gameRef.current?.sandboxSpawnKits()}>
+                  Spawn kit ring
+                </button>
                 <button onClick={() => gameRef.current?.sandboxClear()}>
                   Clear
                 </button>

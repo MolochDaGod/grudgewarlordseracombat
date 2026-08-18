@@ -5,6 +5,15 @@ import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.j
 import { stripPositionTracks, weaponCategory } from "./animations";
 import type { AnimationLibrary, ClipName } from "./animations";
 import type { Bip001Clips } from "./retarget";
+import {
+  applyFootIk,
+  finishOverlay,
+  queueOneShot,
+} from "./combatAnim";
+import {
+  applyWarlordsLoadout,
+  type WarlordsLoadout,
+} from "./warlordsLoadout";
 
 // Real character models live in Cloudflare R2 (public) and are referenced by the
 // /api/saber/roster endpoint (data from Cloudflare D1). They use a 3ds Max Biped
@@ -405,6 +414,13 @@ export interface CharacterInstance {
   locoActive?: boolean;
   /** Current smoothed weight per locomotion clip while blending. */
   locoWeights?: Partial<Record<ClipName, number>>;
+  /** Overlay one-shot currently owning the mixer (attack/cast/hit). */
+  overlayClip?: ClipName | null;
+  /** Deterministic one-shot queue (cap 2). */
+  animQueue?: ClipName[];
+  footBones?: THREE.Bone[];
+  /** Terrain height sampler (same field as body ground). */
+  terrainAt?: (x: number, z: number) => number;
 }
 
 export interface AnimState {
@@ -415,6 +431,8 @@ export interface AnimState {
   strike01: number; // -1 = none, else 0..1 swing progress
   guard: boolean;
   hitFlash: number;
+  /** Same terrain sampler as the body (never a second height field). */
+  groundAt?: (x: number, z: number) => number;
   /**
    * Target real-time seconds the current swing lasts. The (fixed-length) attack
    * clip is time-scaled to fill exactly this window so swings read as crisp and
@@ -819,30 +837,37 @@ export function instantiateToonRts(
   accent: number,
   weapon = "greatsword",
   library?: Partial<Bip001Clips> | null,
+  loadout?: WarlordsLoadout | null,
 ): CharacterInstance {
   const scene = cloneSkeleton(template.scene);
-  // CDN race kits are full customizable packs. pruneKit keeps one mesh per
-  // slot + the matching weapon. Shield stays visible for sword-and-shield.
-  pruneKit(scene, weapon);
-  if (/shield/i.test(weapon)) {
-    let shown = false;
-    scene.traverse((o) => {
-      if (!/shield/i.test(o.name)) return;
-      if (!shown) {
-        o.visible = true;
-        shown = true;
-      }
-    });
+  if (loadout) applyWarlordsLoadout(scene, loadout);
+  else {
+    pruneKit(scene, weapon);
+    if (/shield/i.test(weapon)) {
+      let shown = false;
+      scene.traverse((o) => {
+        if (!/shield/i.test(o.name)) return;
+        if (!shown) {
+          o.visible = true;
+          shown = true;
+        }
+      });
+    }
   }
   fitToonPlayKit(scene);
   const inst = buildInstance(scene, accent, true, "bip001", false);
-  const clips = mergeToonLibraryClips(
-    mapToonRtsClips(template.animations, weapon),
-    library,
-  );
+  // One clip source only. Mixing Mixamo-retarget + authored Toon clips on the
+  // same mixer is what slightly deformed the limbs. Library only if the kit
+  // has no attack clip (empty D1-style bake).
+  const embedded = mapToonRtsClips(template.animations, weapon);
+  const clips =
+    embedded.attack || !library
+      ? embedded
+      : mergeToonLibraryClips(embedded, library);
   const { mixer, actions } = setupMixer(scene, clips);
   inst.mixer = mixer;
   inst.actions = actions;
+  inst.animQueue = [];
   actions.idle?.play();
   inst.currentClip = "idle";
   return inst;
@@ -1581,9 +1606,10 @@ function updateMixamo(inst: CharacterInstance, dt: number, s: AnimState): void {
   // Restart the cast clip on each new cast (reference cast->release pattern:
   // one one-shot spanning wind-up plus release, time-scaled to the window).
   if (desired === "cast" && castActive && !inst.prevCast) {
+    queueOneShot(inst, "cast");
     exitLocoBlend(inst);
     const cast = inst.actions?.cast;
-    if (cast) {
+    if (cast && inst.overlayClip === "cast") {
       cast.reset();
       cast.enabled = true;
       cast.setEffectiveWeight(1);
@@ -1592,18 +1618,31 @@ function updateMixamo(inst: CharacterInstance, dt: number, s: AnimState): void {
       inst.currentClip = "cast";
     }
   } else if (desired === "attack" && strikeActive && !inst.prevStrike) {
+    queueOneShot(inst, "attack");
     exitLocoBlend(inst);
     const atk = inst.actions?.attack;
-    if (atk) {
+    if (atk && inst.overlayClip === "attack") {
       atk.reset();
       atk.enabled = true;
       atk.setEffectiveWeight(1);
-      // Time-scale the fixed-length attack clip to fill the gameplay swing
-      // window so the strike reads as a crisp, "quick" motion synced to the
-      // active hitbox rather than drifting at its authored speed.
       atk.setEffectiveTimeScale(attackTimeScale(atk, s.strikeDur));
       atk.play();
       inst.currentClip = "attack";
+    }
+  } else if (
+    inst.overlayClip &&
+    !strikeActive &&
+    !castActive
+  ) {
+    const queued = finishOverlay(inst);
+    if (queued && inst.actions?.[queued]) {
+      exitLocoBlend(inst);
+      const a = inst.actions[queued]!;
+      a.reset();
+      a.enabled = true;
+      a.setEffectiveWeight(1);
+      a.play();
+      inst.currentClip = queued;
     }
   } else if (
     LOCO_CLIPS.includes(desired) &&
@@ -1622,6 +1661,10 @@ function updateMixamo(inst: CharacterInstance, dt: number, s: AnimState): void {
   inst.prevStrike = strikeActive;
   inst.prevCast = castActive;
   inst.mixer?.update(dt);
+  const sample = s.groundAt ?? inst.terrainAt;
+  if (s.grounded && s.airborne01 < 0.08 && sample) {
+    applyFootIk(inst, sample);
+  }
   updateSaberFollow(inst);
 }
 
