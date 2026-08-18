@@ -24,7 +24,7 @@ export interface WarlordsLoadout {
   legs: string;
   head: string;
   shoulders: string;
-  /** Warlords prefab slug (sir-aldric-valorheart, …). */
+  /** Optional Foundry stamp — display only, never play PK. */
   prefabId?: string;
   /** Offhand: shield / tome / none. */
   offhand?: string;
@@ -46,6 +46,17 @@ export const RACE_PREFIX: Record<LoadoutRace, string> = {
   undead: "UD_",
 };
 
+/** Human knight class kit (sword + shield). Not a character id. */
+export const KNIGHT_WK_MESH_IDS = [
+  "WK_Units_head_F",
+  "WK_Units_Body_E",
+  "WK_Units_Arms_D",
+  "WK_Units_Legs_C",
+  "WK_Units_shoulderpads_B",
+  "WK_weapon_sword_B",
+  "WK_Shield_B",
+] as const;
+
 /** Wide test matrix: every race × knight / warrior / ranger / mage. */
 export const WARLORDS_TEST_LOADOUTS: WarlordsLoadout[] = (
   [
@@ -65,11 +76,23 @@ export const WARLORDS_TEST_LOADOUTS: WarlordsLoadout[] = (
       label: `${faction} Knight`,
       race: r,
       weapon: "sword and shield",
+      offhand: "shield",
       body: letter,
       arms: letter,
       legs: "A",
       head: letter,
       shoulders: "A",
+      clipDonor: "wk-knight",
+      ...(r === "human"
+        ? {
+            meshIds: [...KNIGHT_WK_MESH_IDS],
+            body: "E",
+            arms: "D",
+            legs: "C",
+            head: "F",
+            shoulders: "B",
+          }
+        : {}),
     },
     {
       id: `${r}-warrior`,
@@ -106,36 +129,6 @@ export const WARLORDS_TEST_LOADOUTS: WarlordsLoadout[] = (
     },
   ];
 });
-
-/**
- * Character 1 — Sir Aldric Valorheart (Crusade human knight).
- * Mesh list: animator gearPresets knight. Loadout: SWORD + SHIELD, sword_shield.
- */
-export const SIR_ALDRIC_MESH_IDS = [
-  "WK_Units_head_F",
-  "WK_Units_Body_E",
-  "WK_Units_Arms_D",
-  "WK_Units_Legs_C",
-  "WK_Units_shoulderpads_B",
-  "WK_weapon_sword_B",
-  "WK_Shield_B",
-] as const;
-
-export const SIR_ALDRIC_LOADOUT: WarlordsLoadout = {
-  id: "human-knight",
-  prefabId: "sir-aldric-valorheart",
-  label: "Sir Aldric Valorheart",
-  race: "human",
-  weapon: "sword and shield",
-  offhand: "shield",
-  body: "E",
-  arms: "D",
-  legs: "C",
-  head: "F",
-  shoulders: "B",
-  meshIds: [...SIR_ALDRIC_MESH_IDS],
-  clipDonor: "wk-knight",
-};
 
 function meshKey(name: string): string {
   return String(name || "")

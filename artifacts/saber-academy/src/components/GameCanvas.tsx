@@ -179,7 +179,7 @@ const TOON_RACES: ToonRace[] = [
     raceName: "Western Kingdoms",
     faction: "crusade",
     color: "#7fa8e8",
-    names: ["Sir Aldric Valorheart", "Aldric", "Wren", "Maelis"],
+    names: ["Roland", "Aldric", "Wren", "Maelis"],
   },
   {
     file: "barbarian",
@@ -233,19 +233,9 @@ const TOON_CLASSES: Array<[string, string, string, string]> = [
 
 const TOON_HEROES: RosterHero[] = TOON_RACES.flatMap((race) =>
   TOON_CLASSES.map(([cls, clsTitle, classId, weapon], i) => ({
-    id:
-      race.file === "human" && cls === "knight"
-        ? "sir-aldric-valorheart"
-        : `toon-${race.file}-${cls}`,
+    id: `toon-${race.file}-${cls}`,
     name: race.names[i],
-    title:
-      race.file === "human" && cls === "knight"
-        ? "The Iron Bastion"
-        : `${race.raceName} ${clsTitle}`,
-    prefabId:
-      race.file === "human" && cls === "knight"
-        ? "sir-aldric-valorheart"
-        : undefined,
+    title: `${race.raceName} ${clsTitle}`,
     raceId: race.raceId,
     classId,
     faction: race.faction,

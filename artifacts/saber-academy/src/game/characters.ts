@@ -980,7 +980,7 @@ export function instantiateToonRts(
   }
   fitToonPlayKit(scene);
   const inst = buildInstance(scene, accent, true, "bip001", false);
-  // Prefer same-skeleton Toon donor clips (Aldric knight pack). Mixamo library
+  // Prefer same-skeleton Toon class clips (knight pack). Mixamo library
   // only if that source has no attack.
   const rawAnims =
     donorAnims && donorAnims.length > 0

@@ -86,7 +86,6 @@ import {
   type MotionWarp,
 } from "./motionWarp";
 import {
-  SIR_ALDRIC_LOADOUT,
   WARLORDS_TEST_LOADOUTS,
   applyWarlordsLoadout,
   type WarlordsLoadout,
@@ -2178,7 +2177,7 @@ export class SaberGame {
                 "toonrts",
               );
         this.playerAnimMode = donor
-          ? "Skeletal (Toon donor clips, one mixer)"
+          ? "Skeletal (Toon class clips, one mixer)"
           : "Skeletal (Toon Warlords pack, one mixer)";
         return this.makeToon(
           template,
@@ -2252,15 +2251,6 @@ export class SaberGame {
     classId?: string;
     weapon: string;
   }): WarlordsLoadout | undefined {
-    const key = (h.prefabId ?? h.id ?? h.name ?? "").toLowerCase();
-    if (
-      key.includes("aldric") ||
-      key.includes("roland") ||
-      key.includes("valorheart") ||
-      key === "toon-human-knight"
-    ) {
-      return SIR_ALDRIC_LOADOUT;
-    }
     const race = this.raceKey(h.raceId ?? "human");
     const w = (h.weapon ?? "").toLowerCase();
     const c = (h.classId ?? "").toLowerCase();
