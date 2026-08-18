@@ -57,6 +57,7 @@ import {
   type OrbShotParams,
   type ArrowShotParams,
 } from "./skillcatalog";
+import { ABILITY_LIBRARY } from "./abilityLibrary";
 import { saveCatalog } from "./studio";
 import { mmForWeapon, enemyStandoff } from "./mm";
 import { initRapier, PhysicsWorld, type CharacterBody } from "./physics";
@@ -87,6 +88,7 @@ import {
 import {
   SIR_ALDRIC_LOADOUT,
   WARLORDS_TEST_LOADOUTS,
+  applyWarlordsLoadout,
   type WarlordsLoadout,
 } from "./warlordsLoadout";
 
@@ -888,6 +890,8 @@ export class SaberGame {
 
   // ---- skills & VFX ----
   private skills: SkillDef[] = [];
+  /** 0 = weapon 1, 1 = weapon 2 (Q swap). */
+  private loadoutIndex = 0;
 
   /** Remaining cooldown (seconds) per skill, parallel to `skills`. */
   private cooldowns: number[] = [];
@@ -1390,7 +1394,7 @@ export class SaberGame {
     this.playerTitle = player.title;
     this.factionColor = player.factionColor;
     this.classId = classFor(player);
-    this.skills = catalogSkills(this.classId);
+    this.skills = catalogSkills(this.classId, this.loadoutIndex === 1);
     this.cooldowns = this.skills.map(() => 0);
     void this.ensureFireOrbProto();
     this.emit();
@@ -1741,7 +1745,7 @@ export class SaberGame {
   studioApplyCatalog(next: WeaponSkillCatalog): void {
     applyCatalog(next);
     const prevCd = this.cooldowns.slice();
-    this.skills = catalogSkills(this.classId);
+    this.skills = catalogSkills(this.classId, this.loadoutIndex === 1);
     this.cooldowns = this.skills.map((_, i) => prevCd[i] ?? 0);
     this.emit();
   }
@@ -3937,12 +3941,20 @@ export class SaberGame {
       this.lastTap[e.code] = now;
       // Skill / cast hotkeys are catalog-driven (rebindable in the Studio).
       // Defaults reproduce Q -> skill 0, E -> skill 1, 1..6 -> casts 0..5.
-      const skillIdx = catalog.hotkeys.skill.indexOf(e.code);
-      const castIdx = catalog.hotkeys.cast.indexOf(e.code);
-      if (skillIdx >= 0) this.castSkill(skillIdx);
-      else if (castIdx >= 0) this.castElemental(castIdx);
-      else if (e.code === "Tab") this.cycleTarget();
-      else if (e.code === "KeyR") this.forcePush();
+      const swapCode = catalog.hotkeys.swap ?? "KeyQ";
+      if (e.code === swapCode) {
+        this.swapWeaponLoadout();
+      } else if (e.shiftKey) {
+        const shiftIdx = (catalog.hotkeys.shiftSkill ?? []).indexOf(e.code);
+        if (shiftIdx >= 0) this.castShiftSlot(shiftIdx);
+        else if (e.code === "Tab") this.cycleTarget();
+      } else {
+        const skillIdx = catalog.hotkeys.skill.indexOf(e.code);
+        const castIdx = catalog.hotkeys.cast.indexOf(e.code);
+        if (skillIdx >= 0) this.castSkill(skillIdx);
+        else if (castIdx >= 0) this.castElemental(castIdx);
+        else if (e.code === "Tab") this.cycleTarget();
+      }
       else if (e.code === "Space" && !this.grounded && !this.doubleJumpUsed) {
         // Second Space press mid-air requests a Force Jump (resolved in
         // updatePlayer so it shares the force/grounded checks with movement).
@@ -4921,6 +4933,52 @@ export class SaberGame {
 
     this.cameraShake(0.3, 160);
     this.emit();
+  }
+
+  /** Tap Q — swap Weapon 1 ↔ 2 (mesh letters + skill pair). */
+  private swapWeaponLoadout(): void {
+    if (this.phase !== "playing") return;
+    this.loadoutIndex = this.loadoutIndex === 0 ? 1 : 0;
+    this.skills = catalogSkills(this.classId, this.loadoutIndex === 1);
+    const alt = this.loadoutIndex === 1;
+    if (this.playerInst) {
+      const w = alt
+        ? /ranger/.test(this.classId)
+          ? "staff"
+          : "staff"
+        : /ranger/.test(this.classId)
+          ? "bow"
+          : /mage/.test(this.classId)
+            ? "sword and shield"
+            : "sword and shield";
+      const loadout = this.loadoutFor({
+        classId: this.classId,
+        weapon: w,
+        raceId: "human",
+      });
+      if (loadout) applyWarlordsLoadout(this.playerInst.inner, loadout);
+    }
+    this.setMessage(this.loadoutIndex === 0 ? "Weapon 1" : "Weapon 2", 0.8);
+    this.emit();
+  }
+
+  /** Shift+1..5 — library / extra combat slots. */
+  private castShiftSlot(index: number): void {
+    const fam =
+      this.loadoutIndex === 1
+        ? "air"
+        : /mage/.test(this.classId)
+          ? "fire"
+          : /ranger/.test(this.classId)
+            ? "air"
+            : "fire";
+    const pool = ABILITY_LIBRARY.filter((a) => a.family === fam);
+    const row = pool[index];
+    if (!row) return;
+    const prev = this.skills;
+    this.skills = [row, row];
+    this.castSkill(0);
+    this.skills = prev;
   }
 
   /**
@@ -7861,16 +7919,15 @@ export class SaberGame {
             ready: cd <= 0 && this.force >= s.forceCost,
           };
         }),
-        // Universal skill: every character can Force Push.
         {
-          id: "force-push",
-          name: "Force Push",
-          key: "R",
-          cost: PUSH_COST,
-          cooldownPct: Math.max(0, this.pushCooldown) / PUSH_CD,
-          ready: this.pushCooldown <= 0 && this.force >= PUSH_COST,
+          id: "weapon-swap",
+          name: this.loadoutIndex === 0 ? "Swap · Weapon 2" : "Swap · Weapon 1",
+          key: "Q",
+          cost: 0,
+          cooldownPct: 0,
+          ready: true,
         },
-        // Universal elemental casts (keys 1..5: Cinder Fall, Frost Lance,
+        // Unshifted 1–6 still fire linear/elemental casts. Shift+1–5 = library.
         // Storm Lance, Nova Beam, Voltaic Snare).
         ...CAST_DEFS.map((d, i) => ({
           id: `cast-${d.element}`,

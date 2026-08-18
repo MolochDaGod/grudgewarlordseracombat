@@ -169,6 +169,7 @@ const RESERVED_CODES = new Set<string>([
   "MetaLeft",
   "MetaRight",
   "Tab",
+  "KeyQ",
   "Escape",
   "Enter",
   "CapsLock",
@@ -383,7 +384,7 @@ export function WeaponSkillStudioPanel({
     >
       <div className="wss-head">
         <span className="wss-title">
-          {layout === "admin" ? "Combat Admin" : "Weapon Skill Studio"}
+          {layout === "admin" ? "Combat Admin · Q swap · F/R · Shift+1–5" : "Weapon Skill Studio"}
         </span>
         <span className="wss-class">class: {classId}</span>
       </div>

@@ -31,8 +31,32 @@
     { "element": "snare", "name": "Voltaic Snare", "key": "5", "range": 15, "speed": 46, "damage": 20, "radius": 3.2, "knock": 9, "cost": 26, "cooldown": 8, "color": 9067775, "windup": 0.2, "castShape": "zone", "zoneRadius": 3.2, "hold": 1.0 },
     { "element": "volley", "name": "Rain of Arrows", "key": "6", "range": 16, "speed": 40, "damage": 9, "radius": 3.5, "knock": 4, "cost": 24, "cooldown": 9, "color": 16766554, "windup": 0.2, "castShape": "zone", "zoneRadius": 3.5, "hold": 1.4 }
   ],
+  "classSkillsB": {
+    "warrior": [
+      { "id": "flame_strike", "name": "Flame Strike", "key": "F", "kind": "projectile", "forceCost": 28, "cooldown": 5, "damage": 52, "radius": 3.2, "range": 36, "speed": 30, "color": 16734762, "texture": "flamestrike", "impact": "flamestrike", "blurb": "Weapon 2 — fire glob." },
+      { "id": "frost_nova", "name": "Frost Nova", "key": "R", "kind": "nova", "forceCost": 32, "cooldown": 7, "damage": 32, "radius": 6.2, "range": 0, "speed": 0, "color": 6737151, "texture": "frostbolt", "impact": "frozen", "blurb": "Weapon 2 — frost ring." }
+    ],
+    "mage": [
+      { "id": "whirlwind", "name": "Whirlwind", "key": "F", "kind": "nova", "forceCost": 30, "cooldown": 6, "damage": 38, "radius": 5.2, "range": 0, "speed": 0, "color": 16757575, "texture": "crit", "blurb": "Weapon 2 — melee storm." },
+      { "id": "sunder", "name": "Sunder Charge", "key": "R", "kind": "projectile", "forceCost": 36, "cooldown": 7, "damage": 60, "radius": 2.6, "range": 30, "speed": 34, "color": 16743227, "texture": "flamestrike", "impact": "flamestrike", "blurb": "Weapon 2 — shockwave." }
+    ],
+    "ranger": [
+      { "id": "air_step", "name": "Air Step", "key": "F", "kind": "dash", "forceCost": 22, "cooldown": 4, "damage": 18, "radius": 2.2, "range": 16, "speed": 58, "color": 13234431, "texture": "arcanebolt", "impact": "arcanebolt", "mobility": true, "blurb": "Weapon 2 — air step." },
+      { "id": "gale_bolt", "name": "Gale Bolt", "key": "R", "kind": "projectile", "forceCost": 24, "cooldown": 5, "damage": 30, "radius": 1.8, "range": 30, "speed": 38, "color": 11983114, "texture": "arcanebolt", "impact": "arcanebolt", "blurb": "Weapon 2 — gale shot." }
+    ],
+    "worge": [
+      { "id": "earth_heave", "name": "Earth Heave", "key": "F", "kind": "push", "forceCost": 32, "cooldown": 7, "damage": 16, "radius": 6, "range": 0, "speed": 0, "color": 12163661, "texture": "hit", "blurb": "Weapon 2 — ground heave." },
+      { "id": "stone_charge", "name": "Stone Charge", "key": "R", "kind": "dash", "forceCost": 28, "cooldown": 6, "damage": 38, "radius": 3.2, "range": 9, "speed": 36, "color": 7034692, "texture": "hit", "mobility": true, "blurb": "Weapon 2 — stone charge." }
+    ],
+    "blade dancer": [
+      { "id": "blink_gale", "name": "Blink Gale", "key": "F", "kind": "dash", "forceCost": 24, "cooldown": 6, "damage": 14, "radius": 2, "range": 18, "speed": 64, "color": 16055551, "texture": "heal", "mobility": true, "blurb": "Weapon 2 — blink." },
+      { "id": "air_cannon", "name": "Air Cannon", "key": "R", "kind": "push", "forceCost": 26, "cooldown": 5, "damage": 10, "radius": 8, "range": 0, "speed": 0, "color": 13234431, "texture": "arcanebolt", "blurb": "Weapon 2 — air shove." }
+    ]
+  },
   "hotkeys": {
-    "skill": ["KeyQ", "KeyE"],
+    "skill": ["KeyF", "KeyR"],
+    "shiftSkill": ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5"],
+    "swap": "KeyQ",
     "cast": ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"]
   },
   "rangedShots": {
