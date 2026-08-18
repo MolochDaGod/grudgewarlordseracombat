@@ -24,6 +24,11 @@ import {
   type WeaponCategory,
 } from "@/game/animations";
 import { applyBendDesign, BEND_DESIGNS, BEND_IDS } from "@/game/bendingDesign";
+import {
+  ABILITY_LIBRARY,
+  assignLibraryToSkill,
+  type AbilityRole,
+} from "@/game/abilityLibrary";
 import { studioSaveAvailable } from "@/game/studio";
 import {
   BUFF_TYPES,
@@ -52,6 +57,7 @@ type Tab =
   | "effects"
   | "anims"
   | "bend"
+  | "library"
   | "brains"
   | "debug";
 
@@ -195,6 +201,8 @@ export function WeaponSkillStudioPanel({
   const [drawRings, setDrawRings] = useState(false);
   const [drawSkel, setDrawSkel] = useState(false);
   const [animPack, setAnimPack] = useState<WeaponCategory>("magic");
+  const [libRole, setLibRole] = useState<AbilityRole | "all">("all");
+  const [libId, setLibId] = useState(ABILITY_LIBRARY[0]!.id);
   const [classId] = useState<string>(() => game.studioPlayerClass());
   const [skillIdx, setSkillIdx] = useState(0);
   const [castIdx, setCastIdx] = useState(0);
@@ -407,6 +415,9 @@ export function WeaponSkillStudioPanel({
         </button>
         <button className={tab === "bend" ? "on" : ""} onClick={() => setTab("bend")}>
           Bend
+        </button>
+        <button className={tab === "library" ? "on" : ""} onClick={() => setTab("library")}>
+          Library 50
         </button>
         <button className={tab === "brains" ? "on" : ""} onClick={() => setTab("brains")}>
           AI / Yuka
@@ -921,6 +932,83 @@ export function WeaponSkillStudioPanel({
                   },
                   0.1,
                 )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {tab === "library" && (
+        <div className="wss-body">
+          <div className="wss-subhead">50 abilities · 5 families</div>
+          <p className="wss-clips">
+            Fire / water / earth / air / force — same projectile, nova, dash,
+            and push render. 20 ranged · 10 AOE · 10 push · 10 mobility.
+            Assign to Q or E. Edit color/texture on Signature after assign.
+          </p>
+          <div className="wss-row">
+            {(["all", "ranged", "aoe", "push", "mobility"] as const).map((r) => (
+              <button
+                key={r}
+                className={libRole === r ? "on" : ""}
+                onClick={() => setLibRole(r)}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <label className="wss-field">
+            <span>Ability</span>
+            <select value={libId} onChange={(e) => setLibId(e.target.value)}>
+              {(cat.abilityLibrary ?? ABILITY_LIBRARY)
+                .filter((a) => libRole === "all" || a.role === libRole)
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    [{a.role}] {a.name} · {a.family}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {(() => {
+            const row = (cat.abilityLibrary ?? ABILITY_LIBRARY).find((a) => a.id === libId);
+            if (!row) return null;
+            return (
+              <>
+                <div className="wss-clips">{row.blurb}</div>
+                <div className="wss-clips">
+                  {row.kind} · dmg {row.damage} · r {row.radius}m · range{" "}
+                  {row.range} · {row.texture}
+                </div>
+                <div className="wss-row">
+                  <button
+                    onClick={() =>
+                      setCat((c) => {
+                        const next = structuredClone(c);
+                        const list =
+                          next.classSkills[classId.toLowerCase()] ??
+                          next.classSkills.warrior;
+                        list[0] = assignLibraryToSkill(row, list[0]?.key ?? "Q");
+                        return next;
+                      })
+                    }
+                  >
+                    Assign Q
+                  </button>
+                  <button
+                    onClick={() =>
+                      setCat((c) => {
+                        const next = structuredClone(c);
+                        const list =
+                          next.classSkills[classId.toLowerCase()] ??
+                          next.classSkills.warrior;
+                        list[1] = assignLibraryToSkill(row, list[1]?.key ?? "E");
+                        return next;
+                      })
+                    }
+                  >
+                    Assign E
+                  </button>
+                </div>
               </>
             );
           })()}

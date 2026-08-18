@@ -7,7 +7,7 @@
 // engine loads them defensively and falls back to a tinted additive sprite if a
 // texture is unavailable, so gameplay never depends on the download.
 
-export type SkillKind = "projectile" | "nova" | "dash" | "boomerang" | "heal";
+export type SkillKind = "projectile" | "nova" | "dash" | "boomerang" | "heal" | "push";
 
 export interface SkillDef {
   id: string;
