@@ -3955,7 +3955,7 @@ export class SaberGame {
         else if (castIdx >= 0) this.castElemental(castIdx);
         else if (e.code === "Tab") this.cycleTarget();
       }
-      else if (e.code === "Space" && !this.grounded && !this.doubleJumpUsed) {
+      if (e.code === "Space" && !this.grounded && !this.doubleJumpUsed) {
         // Second Space press mid-air requests a Force Jump (resolved in
         // updatePlayer so it shares the force/grounded checks with movement).
         this.forceJumpRequested = true;
