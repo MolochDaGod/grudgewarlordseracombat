@@ -647,6 +647,10 @@ export function WeaponSkillStudioPanel({
       {tab === "effects" && (
         <div className="wss-body">
           <div className="wss-subhead">Casting primitives</div>
+          <p className="wss-clips">
+            smoke = threejs-games rise/rotate puff (shader + color). Hits spawn
+            it. kind trail/travel + mesh smoke rides projectile / slash spline.
+          </p>
           <div className="wss-row">
             {(cat.effects ?? []).map((p, i) => (
               <button
