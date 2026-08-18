@@ -684,8 +684,8 @@ export default function GameCanvas({ admin = false }: { admin?: boolean }) {
           <div className="controls-hint">
             <b>WASD</b> move &middot; <b>SHIFT</b> sprint &middot; <b>TAB</b> target
             &middot; <b>RMB</b> focus / lock-on &middot; <b>LMB</b> attack &middot;{" "}
-            <b>Q</b>/<b>E</b> skills &middot; <b>1-6</b> casts &middot; edit &amp;
-            save skills in the studio panel
+            <b>MMB</b> pistol tentacle dash &middot; <b>Q</b>/<b>E</b> skills &middot;{" "}
+            <b>1-6</b> casts
           </div>
         </div>
       )}

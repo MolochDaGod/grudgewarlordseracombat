@@ -1310,6 +1310,9 @@ export class SaberGame {
       return;
     }
 
+    void this.ensureTentacle().catch(() => {
+      /* first MMB will retry */
+    });
     this.gunnerDef = await this.loadGunnerDef();
     if (this.disposed || token !== this.startVersion) {
       disposeInstance(inst);
@@ -6655,7 +6658,181 @@ export class SaberGame {
     }
   }
 
+  private hipPistolPos(out = new THREE.Vector3()): THREE.Vector3 {
+    const right = new THREE.Vector3(-Math.cos(this.facing), 0, Math.sin(this.facing));
+    return out
+      .copy(this.player.position)
+      .addScaledVector(right, 0.28)
+      .add(new THREE.Vector3(0, 0.95, 0));
+  }
+
+  private placeTentacle(
+    mesh: THREE.Object3D,
+    from: THREE.Vector3,
+    to: THREE.Vector3,
+    nativeLen: number,
+  ): void {
+    const dir = to.clone().sub(from);
+    const dist = Math.max(0.15, dir.length());
+    dir.multiplyScalar(1 / dist);
+    mesh.position.copy(from);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+    const s = dist / Math.max(0.2, nativeLen);
+    mesh.scale.set(Math.min(1.2, 0.35 + s * 0.15), Math.min(1.2, 0.35 + s * 0.15), s);
+  }
+
+  private ensureTentacle(): Promise<THREE.Object3D> {
+    if (this.tentacleTpl) return Promise.resolve(this.tentacleTpl);
+    const url = `${import.meta.env.BASE_URL}models/vfx/tentacle_color_pack.glb`;
+    return new Promise((resolve, reject) => {
+      new GLTFLoader().load(
+        url,
+        (gltf) => {
+          let best: THREE.Mesh | null = null;
+          let bestN = 0;
+          gltf.scene.updateMatrixWorld(true);
+          gltf.scene.traverse((o) => {
+            const m = o as THREE.Mesh;
+            if (!m.isMesh) return;
+            const n = m.geometry.getAttribute("position")?.count ?? 0;
+            if (n > bestN && n > 200) {
+              best = m;
+              bestN = n;
+            } else {
+              m.visible = false;
+            }
+          });
+          if (!best) {
+            reject(new Error("tentacle pack has no arm mesh"));
+            return;
+          }
+          best.visible = true;
+          const box = new THREE.Box3().setFromObject(best);
+          const size = box.getSize(new THREE.Vector3());
+          this.tentacleLen = Math.max(size.x, size.y, size.z, 1);
+          this.tentacleTpl = best;
+          resolve(best);
+        },
+        undefined,
+        reject,
+      );
+    });
+  }
+
+  private aimPointAtCrosshair(): THREE.Vector3 {
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    const origin = this.camera.position.clone();
+    this.camRay.set(origin, dir);
+    const targets: THREE.Object3D[] = [];
+    if (this.camOccluders.length) targets.push(...this.camOccluders);
+    for (const e of this.enemies) {
+      if (e.alive && !e.gone) targets.push(e.inst.group);
+    }
+    let hit: THREE.Vector3 | null = null;
+    if (targets.length) {
+      const hits = this.camRay.intersectObjects(targets, true);
+      for (const h of hits) {
+        if (h.distance > GRAPPLE_RANGE) break;
+        if (this.playerInst && h.object.parent === this.playerInst.group) continue;
+        hit = h.point.clone();
+        break;
+      }
+    }
+    if (!hit) hit = origin.clone().addScaledVector(dir, GRAPPLE_RANGE);
+    hit.y = this.groundAt(hit.x, hit.z);
+    const from = this.player.position;
+    const flat = Math.hypot(hit.x - from.x, hit.z - from.z);
+    if (flat > GRAPPLE_RANGE) {
+      const k = GRAPPLE_RANGE / flat;
+      hit.x = from.x + (hit.x - from.x) * k;
+      hit.z = from.z + (hit.z - from.z) * k;
+      hit.y = this.groundAt(hit.x, hit.z);
+    }
+    return hit;
+  }
+
+  private firePistolGrapple(): void {
+    if (this.phase !== "playing" || this.grappleCd > 0 || this.grapple) return;
+    if (this.force < GRAPPLE_COST) {
+      this.setMessage("Not enough force", 0.7);
+      return;
+    }
+    this.force -= GRAPPLE_COST;
+    this.grappleCd = GRAPPLE_CD;
+    this.castAnimDur = 0.28;
+    this.castAnimT = 0.28;
+    const to = this.aimPointAtCrosshair();
+    const from = this.hipPistolPos();
+    this.facing = Math.atan2(to.x - from.x, to.z - from.z);
+    void this.ensureTentacle()
+      .then((tpl) => {
+        if (this.disposed || this.phase !== "playing") return;
+        const mesh = cloneSkeleton(tpl);
+        mesh.visible = true;
+        this.scene.add(mesh);
+        this.placeTentacle(mesh, from, from.clone().lerp(to, 0.08), this.tentacleLen);
+        this.grapple = {
+          mesh,
+          from,
+          to,
+          nativeLen: this.tentacleLen,
+          t: 0,
+          flying: false,
+        };
+        this.spawnSparks(from, 0xc9a04e, 8);
+      })
+      .catch(() => {
+        this.grappleCd = 0.2;
+        this.setMessage("Grapple mesh missing", 1);
+      });
+  }
+
+  private updateGrapple(dt: number): void {
+    if (this.grappleCd > 0) this.grappleCd = Math.max(0, this.grappleCd - dt);
+    const g = this.grapple;
+    if (!g) return;
+    g.t += dt;
+    this.hipPistolPos(g.from);
+    const grow = Math.min(1, g.t / GRAPPLE_SHOOT);
+    const tip = g.from.clone().lerp(g.to, grow);
+    this.placeTentacle(g.mesh, g.from, tip, g.nativeLen);
+    if (!g.flying && grow >= 1) {
+      g.flying = true;
+      const dist = Math.hypot(
+        g.to.x - this.player.position.x,
+        g.to.z - this.player.position.z,
+      );
+      this.dashTimer = Math.max(0.1, dist / GRAPPLE_SPEED);
+      this.iFrames = Math.max(this.iFrames, 0.14);
+      this.cameraShake(0.3, 110);
+    }
+    if (g.flying) {
+      const remain = new THREE.Vector3(
+        g.to.x - this.player.position.x,
+        0,
+        g.to.z - this.player.position.z,
+      );
+      const d = remain.length();
+      if (d < 0.5 || this.dashTimer <= 0) {
+        this.clearGrapple();
+        return;
+      }
+      remain.multiplyScalar(GRAPPLE_SPEED / d);
+      this.velocity.x = remain.x;
+      this.velocity.z = remain.z;
+      this.dashTimer = Math.max(this.dashTimer, dt * 2);
+    }
+  }
+
+  private clearGrapple(): void {
+    if (!this.grapple) return;
+    this.scene.remove(this.grapple.mesh);
+    this.grapple = null;
+  }
+
   private resetRun(): void {
+    this.clearGrapple();
     this.clearTimers();
     for (const e of this.enemies) this.disposeEnemy(e);
     this.enemies = [];
