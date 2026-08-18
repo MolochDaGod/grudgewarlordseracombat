@@ -69,6 +69,7 @@ import {
   type SteerMode,
 } from "./brains";
 import { firstSkinned, type KitBake } from "./kitBake";
+import { SmokeCloud, findSmokePrimitive, type SmokeOpts } from "./smokePuff";
 import { COMBAT_DT, CombatTicker } from "./combatTicker";
 import {
   HEAVY_WARP,
@@ -1205,6 +1206,9 @@ export class SaberGame {
   private trailSpawnT = 0;
 
   private trail: { sprite: THREE.Sprite; life: number; maxLife: number }[] = [];
+  /** threejs-games Smoke puffs (damage / impact / spline / trail). */
+  private smokes: SmokeCloud[] = [];
+  private smokeTrailT = 0;
 
   /** Force Push cooldown (R). */
   private pushCooldown = 0;
@@ -4525,10 +4529,9 @@ export class SaberGame {
     // A landed hit ends a parry stun early ("...or until next hit").
     e.stunTimer = 0;
     this.drawHealthBar(e);
-    this.spawnSparks(
-      e.inst.group.position.clone().add(new THREE.Vector3(0, 1.5, 0)),
-      sparkColor,
-    );
+    const hitAt = e.inst.group.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+    this.spawnSparks(hitAt, sparkColor);
+    this.spawnSmoke(hitAt, sparkColor, { style: "puff" });
     if (buffs) this.applyBuffsToEnemy(e, buffs);
     const mul = catalog.ai?.threat.damageMul ?? 1;
     e.threat.add("player", dmg * mul);
@@ -5476,6 +5479,7 @@ export class SaberGame {
     sprite.position.copy(pos);
     this.scene.add(sprite);
     this.flashes.push({ sprite, life: 0.3, maxLife: 0.3, grow: scale * 1.6 });
+    this.spawnSmoke(pos, color, { style: "rise", size: 0.45 + scale * 0.12 });
   }
 
   /** A gunner fires a tracer at the player's chest; resolved in updateVfx. */
@@ -5579,10 +5583,55 @@ export class SaberGame {
     }
   }
 
+  private spawnSmoke(
+    pos: THREE.Vector3,
+    color: number,
+    extra: SmokeOpts = {},
+  ): void {
+    const prim = findSmokePrimitive(catalog.effects);
+    const tint = prim?.color ? new THREE.Color(prim.color).getHex() : color;
+    const cloud = new SmokeCloud(pos, {
+      color: extra.color ?? tint,
+      size: extra.size ?? prim?.size ?? 0.65,
+      duration: extra.duration ?? prim?.duration ?? 0.65,
+      intensity: extra.intensity ?? prim?.intensity ?? 0.9,
+      radius: extra.radius ?? Math.max(0.12, (prim?.aoe ?? 0.8) * 0.28),
+      count: extra.count ?? 24,
+      style: extra.style ?? "puff",
+      spline: extra.spline,
+    });
+    this.scene.add(cloud.mesh);
+    this.smokes.push(cloud);
+    while (this.smokes.length > 14) {
+      const old = this.smokes.shift();
+      old?.dispose();
+    }
+  }
+
+  private updateSmokes(dt: number): void {
+    for (let i = this.smokes.length - 1; i >= 0; i--) {
+      const s = this.smokes[i]!;
+      if (!s.update(dt)) {
+        s.dispose();
+        this.smokes.splice(i, 1);
+      }
+    }
+  }
+
   private updateVfx(dt: number): void {
     // Drawn slash sweep + drawn guard ribbons.
     this.updateDrawnSlash(dt);
     this.updateGuards(dt);
+    this.updateSmokes(dt);
+    this.smokeTrailT += dt;
+    const smokeTravel = findSmokePrimitive(catalog.effects);
+    const emitTrail =
+      !!smokeTravel &&
+      (smokeTravel.kind === "smoke" ||
+        smokeTravel.kind === "trail" ||
+        smokeTravel.kind === "travel") &&
+      this.smokeTrailT >= 0.08;
+    if (emitTrail) this.smokeTrailT = 0;
     // Projectiles: travel, expire at range, detonate (splash) on enemy contact.
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
@@ -5592,6 +5641,14 @@ export class SaberGame {
       }
       p.sprite.position.addScaledVector(p.velocity, dt);
       p.sprite.material.rotation += dt * 8;
+      if (emitTrail) {
+        this.spawnSmoke(p.sprite.position, p.def.color, {
+          style: "trail",
+          duration: 0.32,
+          size: 0.32,
+          count: 12,
+        });
+      }
       const traveled = p.sprite.position.distanceTo(p.origin);
       let hit: THREE.Vector3 | null = null;
       for (const e of this.enemies) {
@@ -5858,6 +5915,8 @@ export class SaberGame {
 
   /** Remove all active VFX (projectiles, novas, flashes) from the scene. */
   private clearVfx(): void {
+    for (const s of this.smokes) s.dispose();
+    this.smokes = [];
     for (const p of this.projectiles) {
       this.scene.remove(p.sprite);
       this.disposeSprite(p.sprite);
@@ -6495,6 +6554,15 @@ export class SaberGame {
       ribbon,
       fade: 0.45,
     };
+    if (world.length >= 2) {
+      this.spawnSmoke(world[0]!, this.colorHex(this.factionColor), {
+        style: "spline",
+        spline: world,
+        duration: SLASH_EXEC_T + 0.35,
+        size: 0.5,
+        count: 36,
+      });
+    }
     // Drive the attack animation so the character visibly swings with the path.
     if (this.playerInst) this.playerInst.prevStrike = false;
     this.attackDur = Math.max(SLASH_EXEC_T, 0.3);

@@ -11,7 +11,8 @@ export type EffectKind =
   | "impact"
   | "residual"
   | "decal"
-  | "aura";
+  | "aura"
+  | "smoke";
 
 export type EffectAttach =
   | "R_hand"
@@ -41,6 +42,7 @@ export const EFFECT_KINDS: EffectKind[] = [
   "residual",
   "decal",
   "aura",
+  "smoke",
 ];
 
 export const EFFECT_ATTACH: EffectAttach[] = [
@@ -77,6 +79,7 @@ export const EFFECT_MESH_IDS = [
   "summon-ice-shard",
   "sphering",
   "warcry",
+  "smoke",
 ] as const;
 
 export interface LinearGlobal {
@@ -133,6 +136,19 @@ export const ELEMENT_LINEAR: Record<string, LinearCastExtras["linearId"]> = {
 };
 
 export function defaultPrimitive(kind: EffectKind = "travel"): EffectPrimitive {
+  if (kind === "smoke") {
+    return {
+      kind: "smoke",
+      intensity: 0.9,
+      aoe: 0.8,
+      speed: 2.4,
+      size: 0.7,
+      color: "#8899aa",
+      meshId: "smoke",
+      duration: 0.7,
+      attach: "root",
+    };
+  }
   return {
     kind,
     intensity: 1,
