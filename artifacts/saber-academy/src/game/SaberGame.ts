@@ -69,6 +69,13 @@ import {
 } from "./brains";
 import { COMBAT_DT, CombatTicker } from "./combatTicker";
 import {
+  HEAVY_WARP,
+  LIGHT_WARP,
+  advanceWarp,
+  resolveWarp,
+  type MotionWarp,
+} from "./motionWarp";
+import {
   WARLORDS_TEST_LOADOUTS,
   type WarlordsLoadout,
 } from "./warlordsLoadout";
@@ -1138,6 +1145,8 @@ export class SaberGame {
   private lungeRemain = 0;
 
   private lungeDir = new THREE.Vector3();
+  /** Motion warp locked at swing press (Samurai TPS turn-then-close). */
+  private swingWarp: MotionWarp | null = null;
 
   /** Enemy this swing was aimed at; facing tracks it for turn-to-contact. */
   private swingAim: Enemy | null = null;
@@ -4065,32 +4074,21 @@ export class SaberGame {
           ? this.softTarget
           : null;
     this.swingAim = aim ?? null;
-    // Never carry lunge distance from a previous swing into this one.
     this.lungeRemain = 0;
-    if (aim) {
-      const ap = aim.inst.group.position;
-      this.facing = Math.atan2(
-        ap.x - this.player.position.x,
-        ap.z - this.player.position.z,
-      );
-      // Deterministic step-in: measure the gap to the ideal contact distance
-      // and close exactly that much during the swing (capped, grounded only).
-      if (this.grounded) {
-        const dist = Math.hypot(
-          ap.x - this.player.position.x,
-          ap.z - this.player.position.z,
-        );
-        this.lungeRemain = THREE.MathUtils.clamp(
-          dist - LUNGE_STANDOFF,
-          0,
-          LUNGE_MAX,
-        );
-        this.lungeDir.set(Math.sin(this.facing), 0, Math.cos(this.facing));
-      }
-    } else {
-      // No enemy to aim at: swing toward where the crosshair (camera) points, so
-      // attacks go at the reticle instead of the last-faced direction.
+    this.swingWarp = resolveWarp(
+      this.player.position.x,
+      this.player.position.z,
+      this.facing,
+      aim ? aim.inst.group.position.x : null,
+      aim ? aim.inst.group.position.z : null,
+      heavy ? HEAVY_WARP : LIGHT_WARP,
+    );
+    if (aim && this.grounded && this.swingWarp.active) {
+      this.facing = this.swingWarp.toYaw;
+      this.lungeDir.set(Math.sin(this.facing), 0, Math.cos(this.facing));
+    } else if (!aim) {
       this.facing = this.camHeading;
+      this.swingWarp.active = false;
     }
     const airborne = !this.grounded;
     // Heavy and air strikes stand alone; light strikes advance the 3-step chain.
@@ -5699,18 +5697,21 @@ export class SaberGame {
         ? SPRINT_SPEED
         : WALK_SPEED;
 
-    // Deterministic attack lunge: a strike aimed beyond reach closes exactly
-    // the measured gap during the swing, then hands control back. Overrides
-    // normal acceleration so the step-in distance is repeatable.
-    if (this.attackTimer > 0 && this.lungeRemain > 0 && this.dashTimer <= 0) {
-      const step = Math.min(this.lungeRemain, LUNGE_SPEED * dt);
-      this.lungeRemain -= step;
+    // Motion warp (Samurai TPS): turn first, then close to standoff inside
+    // the swing. Destination locked at press — no per-frame skate-home.
+    if (this.attackTimer > 0 && this.swingWarp?.active && this.dashTimer <= 0) {
+      const dur = Math.max(1e-3, this.attackDur);
+      const phase = 1 - this.attackTimer / dur;
+      advanceWarp(this.swingWarp, phase);
+      const wx = this.swingWarp.x - this.player.position.x;
+      const wz = this.swingWarp.z - this.player.position.z;
       if (dt > 1e-5) {
-        this.velocity.x = this.lungeDir.x * (step / dt);
-        this.velocity.z = this.lungeDir.z * (step / dt);
+        this.velocity.x = wx / dt;
+        this.velocity.z = wz / dt;
       }
-    } else if (this.attackTimer <= 0 && this.lungeRemain > 0) {
-      this.lungeRemain = 0;
+      this.facing = this.swingWarp.yaw;
+    } else if (this.attackTimer <= 0 && this.swingWarp) {
+      this.swingWarp.active = false;
     }
 
     if (this.dashTimer > 0) {
@@ -5750,17 +5751,8 @@ export class SaberGame {
     // Turn-to-face / lock-on facing (survival controller). The Weapon Skill
     // Studio (animtest) shares this exact behavior so edited skills read the
     // same as in the live game.
-    if (this.attackTimer > 0 && this.swingAim && this.swingAim.alive) {
-      // Turn-to-contact: while a strike is live, keep facing the enemy it was
-      // aimed at so the lunge and blade arrive on target even if it moves.
-      const sp = this.swingAim.inst.group.position;
-      this.facing = Math.atan2(
-        sp.x - this.player.position.x,
-        sp.z - this.player.position.z,
-      );
-      if (this.lungeRemain > 0) {
-        this.lungeDir.set(Math.sin(this.facing), 0, Math.cos(this.facing));
-      }
+    if (this.attackTimer > 0 && this.swingWarp?.active) {
+      // Blade IK: facing is the warp yaw (clip assumed this heading at hitAt).
     } else if (this.targetEnemy && this.targetEnemy.alive) {
       // Lock-on: square up to the focused target only inside fighting range
       // (or while standing still). When the target is far away and the player
@@ -6942,6 +6934,7 @@ export class SaberGame {
     this.simAccum = 0;
     this.ticker.accum = 0;
     this.ticker.queue.length = 0;
+    this.swingWarp = null;
     this.softTarget = null;
     if (this.softMarker) this.softMarker.visible = false;
     this.cooldowns = this.skills.map(() => 0);
